@@ -1,0 +1,10 @@
+{
+  "stop_on_fail": true,
+  "default_python": "python3",
+  "default_timeout": 0,
+  "steps": [
+    {
+      "script": "_10_network_simplex_solver.py"
+    }
+  ]
+}

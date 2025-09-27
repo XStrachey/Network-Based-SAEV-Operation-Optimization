@@ -8,3 +8,4 @@
 *.csv
 /src/graph_ops/__pycache__
 /src/data/solver_graph
+/src/outputs
