@@ -1,0 +1,10 @@
+.DS_Store
+/src/logs
+/src/__pycache__
+/visualization_outputs
+/src/data/intermediate
+/data_preparation/__pycache__
+/data/raw data
+*.csv
+/src/graph_ops/__pycache__
+/src/data/solver_graph
