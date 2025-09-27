@@ -241,11 +241,149 @@ def build_service_arcs(cfg, gi: GridIndexers, reachable_set: set,
 def build_reposition_arcs(cfg, gi: GridIndexers, reachable_set: set,
                           t0: int = None, t_hi: int = None, B: int = None) -> pd.DataFrame:
     """
-    reposition 弧：维持原实现 (i,t,l)->(j,t+tau,l-de)
+    reposition 弧：需求驱动的生成策略
+    
+    只对有重定位需求的OD对生成弧，显著减少弧数量
     """
-    bij = load_base_ij(cfg)
-    bij = bij[bij["i"] != bij["j"]].copy()  # 明确去掉 i==j
+    return _build_reposition_arcs_demand_driven(cfg, gi, reachable_set, t0, t_hi, B)
 
+
+def _compute_reposition_demand(cfg, t0: int = None, t_hi: int = None) -> pd.DataFrame:
+    """
+    计算重定位需求矩阵
+    
+    基于服务需求的时空分布和供需不平衡来预测重定位需求
+    """
+    # 加载服务需求数据作为基础
+    from data_loader import load_od_matrix
+    od = load_od_matrix(cfg)
+    
+    # 时间过滤
+    if t0 is not None and t_hi is not None:
+        od = od[(od["t"] >= t0) & (od["t"] <= t_hi - 1)]
+    
+    if od.empty:
+        return pd.DataFrame(columns=['i', 'j', 't', 'reposition_demand'])
+    
+    reposition_demand = []
+    
+    # 方法1：基于高服务需求的OD对生成重定位需求
+    high_demand_threshold = od['demand'].quantile(0.8)  # 前20%的高需求
+    high_demand_pairs = od[od['demand'] > high_demand_threshold].copy()
+    
+    reposition_ratio = getattr(cfg.pruning, 'reposition_demand_ratio', 0.3)
+    
+    for _, row in high_demand_pairs.iterrows():
+        i, j, t = int(row['i']), int(row['j']), int(row['t'])
+        
+        # 重定位需求 = 服务需求的一个比例
+        reposition_demand_val = row['demand'] * reposition_ratio
+        
+        if reposition_demand_val > 0:
+            reposition_demand.append({
+                'i': i,
+                'j': j, 
+                't': t,
+                'reposition_demand': reposition_demand_val
+            })
+    
+    # 方法2：基于供需不平衡的逆向重定位
+    # 计算每个区域在每个时刻的需求和供给不平衡
+    zone_demand = od.groupby(['i', 't'])['demand'].sum().reset_index()
+    zone_demand.columns = ['zone', 't', 'total_demand']
+    
+    # 简化假设：供给相对均匀分布
+    total_supply = 200.0  # 从配置或数据中获取
+    num_zones = od['i'].nunique()
+    base_supply_per_zone = total_supply / num_zones
+    
+    # 直接添加供给列到需求数据中
+    zone_demand['total_supply'] = base_supply_per_zone
+    
+    # 计算供需不平衡
+    zone_balance = zone_demand.copy()
+    zone_balance['imbalance'] = zone_balance['total_demand'] - zone_balance['total_supply']
+    
+    imbalance_threshold = getattr(cfg.pruning, 'reposition_imbalance_threshold', 1.0)
+    
+    # 从供给过剩的区域到需求过剩的区域
+    for _, row in zone_balance.iterrows():
+        zone, t = int(row['zone']), int(row['t'])
+        imbalance = row['imbalance']
+        
+        if imbalance < -imbalance_threshold:  # 供给过剩
+            # 找到需求过剩的区域作为目标
+            demand_surplus = zone_balance[
+                (zone_balance['t'] == t) & 
+                (zone_balance['imbalance'] > imbalance_threshold)
+            ].copy()
+            
+            if not demand_surplus.empty:
+                # 选择不平衡最严重的几个目标区域
+                top_targets = demand_surplus.nlargest(3, 'imbalance')
+                
+                for _, target in top_targets.iterrows():
+                    target_zone = int(target['zone'])
+                    reposition_demand_val = min(abs(imbalance), target['imbalance']) * 0.5
+                    
+                    reposition_demand.append({
+                        'i': zone,
+                        'j': target_zone,
+                        't': t,
+                        'reposition_demand': reposition_demand_val
+                    })
+    
+    if not reposition_demand:
+        return pd.DataFrame(columns=['i', 'j', 't', 'reposition_demand'])
+    
+    demand_df = pd.DataFrame(reposition_demand)
+    
+    # 去重和聚合
+    demand_df = demand_df.groupby(['i', 'j', 't']).agg({
+        'reposition_demand': 'sum'
+    }).reset_index()
+    
+    # 过滤掉重定位需求过小的OD对
+    min_demand_threshold = getattr(cfg.pruning, 'min_reposition_demand', 0.1)
+    demand_df = demand_df[demand_df['reposition_demand'] >= min_demand_threshold]
+    
+    return demand_df
+
+
+def _build_reposition_arcs_demand_driven(cfg, gi: GridIndexers, reachable_set: set,
+                                       t0: int = None, t_hi: int = None, B: int = None) -> pd.DataFrame:
+    """
+    需求驱动的重定位弧生成
+    """
+    # 计算重定位需求
+    reposition_demand = _compute_reposition_demand(cfg, t0, t_hi)
+    
+    if reposition_demand.empty:
+        return pd.DataFrame(columns=["arc_type","from_node_id","to_node_id","i","j","t","l","tau","de","dist_km"])
+    
+    # 加载距离和时间信息
+    bij = load_base_ij(cfg)
+    
+    # 合并重定位需求与距离信息
+    demand_with_dist = reposition_demand.merge(bij, on=['i', 'j'], how='inner')
+    
+    # 注意：距离过滤由 max_reposition_tt 通过时间约束统一控制，无需额外距离过滤
+    
+    if demand_with_dist.empty:
+        return pd.DataFrame(columns=["arc_type","from_node_id","to_node_id","i","j","t","l","tau","de","dist_km"])
+    
+    # 生成弧的逻辑（与传统方法相同）
+    return _generate_reposition_arcs_from_pairs(cfg, gi, reachable_set, demand_with_dist, t0, t_hi, B)
+
+
+# 传统重定位弧生成方法已移除 - 全面采用需求驱动方法
+
+
+def _generate_reposition_arcs_from_pairs(cfg, gi: GridIndexers, reachable_set: set,
+                                        od_pairs_df: pd.DataFrame, t0: int = None, t_hi: int = None, B: int = None) -> pd.DataFrame:
+    """
+    从OD对生成重定位弧的通用函数
+    """
     dt = int(cfg.time_soc.dt_minutes)
     arrival_end = min(t_hi + int(B) if (t_hi is not None and B is not None) else gi.times[-1], gi.times[-1])
     soc_levels = np.array(gi.socs, dtype=int)
@@ -255,39 +393,41 @@ def build_reposition_arcs(cfg, gi: GridIndexers, reachable_set: set,
     max_rep_steps = int(math.ceil(max_rep_min / dt)) if max_rep_min > 0 else None
 
     rows = []
-    # 时间范围
-    if t0 is not None:
-        time_range = range(t0, t_hi)
-    else:
-        time_range = gi.times
-
-    for _, r in bij.iterrows():
-        i, j = int(r["i"]), int(r["j"])
-        dist_km  = float(r.get("dist_km", 0.0))
-        # 基于距离和速度计算耗时，而不是直接使用base_minutes
+    
+    for _, r in od_pairs_df.iterrows():
+        i, j, t = int(r["i"]), int(r["j"]), int(r["t"])
+        dist_km = float(r.get("dist_km", 0.0))
+        
+        # 基于距离和速度计算耗时
         avg_speed_kmh = float(cfg.basic.avg_speed_kmh)
         travel_time_minutes = (dist_km / avg_speed_kmh) * 60.0 if avg_speed_kmh > 0 else 0.0
         tau = int(math.ceil(travel_time_minutes / dt))
+        
         if tau <= 0:
             continue
         if max_rep_steps is not None and tau > max_rep_steps:
             continue
-
-        for t in time_range:
-            t2 = t + tau
-            if t2 > arrival_end:
+            
+        t2 = t + tau
+        if t2 > arrival_end:
+            continue
+            
+        de = compute_multi_timestep_energy_consumption(cfg, dist_km, t, tau, soc_step, "de_per_km_rep")
+        lmin = max(int(cfg.pruning.min_soc_for_reposition), de)
+        feas_soc = soc_levels[soc_levels >= lmin]
+        
+        for l in feas_soc:
+            if (i, l, t) not in reachable_set or (j, l - de, t2) not in reachable_set:
                 continue
-            de = compute_multi_timestep_energy_consumption(cfg, dist_km, t, tau, soc_step, "de_per_km_rep")
-            lmin = max(int(cfg.pruning.min_soc_for_reposition), de)
-            feas_soc = soc_levels[soc_levels >= lmin]
-            for l in feas_soc:
-                if (i, l, t) not in reachable_set or (j, l - de, t2) not in reachable_set:
-                    continue
-                from_id = gi.id_of(i, t, l)
-                to_id = gi.id_of(j, t2, l - de)
-                rows.append(("reposition", from_id, to_id, i, j, t, int(l), tau, int(de), dist_km))
+                
+            from_id = gi.id_of(i, t, l)
+            to_id = gi.id_of(j, t2, l - de)
+            
+            rows.append(("reposition", from_id, to_id, i, j, t, int(l), tau, int(de), dist_km))
+    
     if not rows:
         return pd.DataFrame(columns=["arc_type","from_node_id","to_node_id","i","j","t","l","tau","de","dist_km"])
+    
     out = pd.DataFrame(rows, columns=["arc_type","from_node_id","to_node_id","i","j","t","l","tau","de","dist_km"])
     return _drop_self_loops(out, "reposition")
 
@@ -554,12 +694,19 @@ def main():
     # Reposition arcs (生成 → KNN 剪枝 → 保存)
     rep_df = build_reposition_arcs(cfg, gi, reachable_set)
     rep_df = _drop_self_loops(rep_df, "reposition")
+    
+    # 统计需求驱动方法的效果
+    reposition_demand = _compute_reposition_demand(cfg)
+    rep_demand_info = f"，需求驱动：{len(reposition_demand):,} 需求对"
+    if cfg.solver.verbose:
+        print(f"[需求驱动] 重定位需求：{len(reposition_demand):,} 个OD对")
+    
     K = cfg.pruning.reposition_nearest_zone_n or 16
     rep_prune_metric = "none"; rep_pruned_dropped = 0
     if K and K > 0 and not rep_df.empty:
         rep_df, rep_prune_metric, rep_pruned_dropped = _prune_reposition_arcs_knn(rep_df, K)
         if cfg.solver.verbose:
-            print(f"[KNN] 重定位弧剪枝：K={K:,}，保留 {len(rep_df):,d} 条，剪掉 {rep_pruned_dropped:,d} 条。度量={rep_prune_metric}")
+            print(f"[KNN] 重定位弧剪枝：K={K:,}，保留 {len(rep_df):,d} 条，剪掉 {rep_pruned_dropped:,d} 条。度量={rep_prune_metric}{rep_demand_info}")
     rep_df = _attach_arc_id(rep_df, ["arc_type","from_node_id","to_node_id"])
     rep_df.to_parquet(out_dir / "reposition_arcs.parquet", index=False)
     rep_df.to_csv(out_dir / "reposition_arcs.csv", index=False)

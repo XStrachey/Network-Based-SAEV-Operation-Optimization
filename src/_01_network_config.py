@@ -26,8 +26,8 @@ class TimeSOC:
     dt_minutes: int = 15
     start_step: int = 1
     end_step: int = 96
-    window_length: int = 24           # 窗口长度 H
-    overhang_steps: int = 2          # Halo：窗外可见/可到达的"缓冲步数"（建议 2~6）
+    window_length: int = 92           # 窗口长度 H
+    overhang_steps: int = 4          # Halo：窗外可见/可到达的"缓冲步数"（建议 2~6）
     roll_step: int = 1
     soc_levels: List[int] = None
 
@@ -86,9 +86,14 @@ class PruningRules:
     # —— 你已有的字段（原样保留）——
     max_reposition_tt: float = 30.0      # 若 τ_rep > 30 min，剪枝
     min_soc_for_reposition: int = 20     # SOC% 低于阈值不允许重定位
-    reposition_nearest_zone_n: int = 8
-    charge_nearest_station_n: int = 8
+    reposition_nearest_zone_n: int = 16
+    charge_nearest_station_n: int = 16
     max_service_radius_zones: int = 0    # 0=不限制；>0 时仅保留邻近服务弧（在 04 中用）
+    
+    # —— 需求驱动的重定位弧生成参数 ——
+    reposition_demand_ratio: float = 0.3          # 重定位需求相对于服务需求的比例
+    min_reposition_demand: float = 0.1            # 最小重定位需求阈值
+    reposition_imbalance_threshold: float = 1.0   # 供需不平衡阈值
 
 # -------------------------
 # 求解器
@@ -133,19 +138,7 @@ class EnergyRates:
 class BasicConfig:
     avg_speed_kmh: float = 30.0
 
-# -------------------------
-# R1重定位弧定向裁剪配置
-# -------------------------
-@dataclass
-class R1PruneConfig:
-    enabled: bool = True                    # 总开关
-    delta: float = 0.0                     # 判定阈值：Δ=DP(j,t_to)-DP(i,t_from) ≥ delta 才定向
-    epsilon: float = 0.05                  # 不确定带：|Δ| ≤ epsilon 则保留双向
-    keep_reverse_ratio: float = 0.10       # 兜底：按成本/距离对每对(i,j)保留少量反向边
-    min_outdeg: int = 2                    # 每区/时段最小出度下限（重定位）
-    min_indeg: int = 2                     # 每区/时段最小入度下限（重定位）
-    supply_mode: str = "none"              # 供给估计：none | prev_solution（可后续扩展）
-    random_seed: int = 13                  # 随机兜底的可复现性
+# R1PruneConfig 已移除 - 不再需要生成后裁剪，改为需求驱动的生成端控制
 
 # -------------------------
 # 全局 Config
@@ -163,7 +156,7 @@ class NetworkConfig:
     flags: ModelFlags = field(default_factory=ModelFlags)
     energy: EnergyRates = field(default_factory=EnergyRates)
     basic: BasicConfig = field(default_factory=BasicConfig)
-    r1_prune: R1PruneConfig = field(default_factory=R1PruneConfig)
+    # r1_prune 已移除 - 不再需要生成后裁剪
 
     arcgen: ArcGenConfig = field(default_factory=ArcGenConfig)
 

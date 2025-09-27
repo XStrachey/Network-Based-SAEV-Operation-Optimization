@@ -4,7 +4,10 @@
   "default_timeout": 0,
   "steps": [
     {
-      "script": "_10_network_simplex_solver.py"
+      "script": "_08_build_solver_graph.py"
+    },
+    {
+      "script": "_09_solve_graph_mincost.py"
     }
   ]
 }

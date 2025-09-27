@@ -30,7 +30,7 @@ from _05_connectivity import (
     dynamic_prune_for_window, source_nodes_from_inventory_at_t0, final_nodes_at_t
 )
 from _06_costs import attach_costs_to_arcs_for_window
-from graph_ops.reposition_r1_pruner import prune_reposition_arcs
+# R1Prune 已移除 - 不再需要生成后裁剪
 
 
 # ----------------------------
@@ -245,37 +245,8 @@ def build_solver_graph(
     # 3) 附加成本（06）
     arcs_costed = attach_costs_to_arcs_for_window(pruned_df)
 
-    # 4) R1重定位弧定向裁剪
-    if cfg.r1_prune.enabled:
-        print("[solver-graph] 执行R1重定位弧定向裁剪...")
-        svc_gates_df = arcs_costed[arcs_costed['arc_type'] == 'svc_gate'].copy()
-        if not svc_gates_df.empty:
-            arcs_costed, r1_report = prune_reposition_arcs(
-                arcs_df=arcs_costed,
-                nodes_df=nodes_win,
-                svc_gates_df=svc_gates_df,
-                prev_solution_df=None,   # 初版先设 None；后续可接入上一窗口解
-                cfg=cfg.r1_prune.as_dict() if hasattr(cfg.r1_prune, 'as_dict') else {
-                    'enabled': cfg.r1_prune.enabled,
-                    'delta': cfg.r1_prune.delta,
-                    'epsilon': cfg.r1_prune.epsilon,
-                    'keep_reverse_ratio': cfg.r1_prune.keep_reverse_ratio,
-                    'min_outdeg': cfg.r1_prune.min_outdeg,
-                    'min_indeg': cfg.r1_prune.min_indeg,
-                    'supply_mode': cfg.r1_prune.supply_mode,
-                    'random_seed': cfg.r1_prune.random_seed
-                },
-                overhang_steps=int(cfg.time_soc.overhang_steps)  # 直接使用 time_soc.overhang_steps
-            )
-            print(f"[R1_PRUNE] 重定位弧数量变化: {r1_report['reposition_before']:,} -> {r1_report['reposition_after']:,}")
-            print(f"[R1_PRUNE] 裁剪比例: {r1_report['drop_ratio']:.1%}")
-            print(f"[R1_PRUNE] Halo过滤: {r1_report['halo_filtered']:,} 条弧")
-            if r1_report['min_outdeg_violation'] > 0 or r1_report['min_indeg_violation'] > 0:
-                print(f"[R1_PRUNE] 度违规: 出度{r1_report['min_outdeg_violation']}, 入度{r1_report['min_indeg_violation']}")
-        else:
-            print("[R1_PRUNE] 跳过：未找到服务闸门弧")
-    else:
-        print("[solver-graph] R1重定位弧定向裁剪已禁用")
+    # R1重定位弧定向裁剪已移除 - 改为需求驱动的生成端控制
+    print("[solver-graph] 重定位弧数量控制已通过需求驱动的生成端实现")
 
     # 5) 容量字段：svc_gate 与 chg_occ 使用 cap_hint，其它给"无穷容量"
     arcs_costed = arcs_costed.copy()
