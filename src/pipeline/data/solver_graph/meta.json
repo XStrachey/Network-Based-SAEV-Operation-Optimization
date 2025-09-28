@@ -1,0 +1,18 @@
+{
+  "t0": 1,
+  "H": 92,
+  "t_hi": 93,
+  "keep_on": "from",
+  "require_bwd": false,
+  "add_sink": true,
+  "cap_infinite": 1000000000000.0,
+  "architecture": "new_oop",
+  "nodes": 4506,
+  "arcs": 15571,
+  "sup_total": 200.0,
+  "sink_node_id": -8724511148913574225,
+  "paths": {
+    "nodes": "data/solver_graph/nodes.parquet",
+    "arcs": "data/solver_graph/arcs.parquet"
+  }
+}
