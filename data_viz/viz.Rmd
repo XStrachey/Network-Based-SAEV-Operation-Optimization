@@ -13,111 +13,30 @@ knitr::opts_chunk$set(echo = FALSE)
 # 依赖：
 # install.packages(c("readr","dplyr","lubridate","tidyr"))
 
+library(dplyr)
 library(readr)
-library(dplyr)
-library(lubridate)
-library(tidyr)
-
-rideaustin <- "../data/raw data/ride-austin.csv"
-time_col  <- "started_on"       # 或 "completed_on"
-tz_local  <- "America/Chicago"
-
-# Austin 中心点 + 半径 (km)
-aus_lat <- 30.2672; aus_lon <- -97.7431; radius_km <- 35
-
-# Haversine（km）
-haversine_km <- function(lat1, lon1, lat2, lon2) {
-  R <- 6371; to_rad <- pi/180
-  dlat <- (lat2 - lat1) * to_rad; dlon <- (lon2 - lon1) * to_rad
-  a <- sin(dlat/2)^2 + cos(lat1*to_rad) * cos(lat2*to_rad) * sin(dlon/2)^2
-  2 * R * atan2(sqrt(a), sqrt(1 - a))
-}
-
-# 把“时间转 bin 编号(1..96)”的函数
-bin96 <- function(dt) {
-  s <- hour(dt) * 3600 + minute(dt) * 60 + second(dt)      # 0..86399
-  as.integer(s %/% 900) + 1                                 # 900=15*60
-}
-
-raw <- read_csv(rideaustin, show_col_types = FALSE)
-
-# 安全检查
-need_cols <- c("start_location_lat","start_location_long","end_location_lat","end_location_long")
-missing <- setdiff(need_cols, names(raw))
-if (length(missing)) stop(sprintf("缺少坐标列：%s", paste(missing, collapse=", ")))
-if (!time_col %in% names(raw)) stop(sprintf("列 %s 不存在（可选 started_on/completed_on）。", time_col))
-
-# 仅保留“起点或终点在奥斯汀圈内”的记录
-raw <- raw %>%
-  mutate(
-    start_in = ifelse(!is.na(start_location_lat) & !is.na(start_location_long),
-                      haversine_km(start_location_lat, start_location_long, aus_lat, aus_lon) <= radius_km, FALSE),
-    end_in   = ifelse(!is.na(end_location_lat) & !is.na(end_location_long),
-                      haversine_km(end_location_lat, end_location_long, aus_lat, aus_lon) <= radius_km, FALSE),
-    in_austin = start_in | end_in
-  ) %>%
-  filter(in_austin)
-
-# 解析时间并生成“15 分钟分段编号（1..96）”
-raw_aug <- raw %>%
-  mutate(
-    # 两种解析口径
-    dt_local     = ymd_hms(.data[[time_col]], tz = tz_local, quiet = TRUE),
-    dt_utc2local = with_tz(ymd_hms(.data[[time_col]], tz = "UTC", quiet = TRUE), tzone = tz_local),
-
-    # 编号（1..96）
-    bin96_local     = if_else(!is.na(dt_local),     bin96(dt_local),     NA_integer_),
-    bin96_utc2local = if_else(!is.na(dt_utc2local), bin96(dt_utc2local), NA_integer_),
-
-    # 可读标签（该 15 分钟段的起始时刻）
-    bin_start_local     = as.POSIXct((bin96_local - 1L) * 900, origin = "1970-01-01", tz = "UTC"),
-    bin_start_utc2local = as.POSIXct((bin96_utc2local - 1L) * 900, origin = "1970-01-01", tz = "UTC"),
-    bin_label_local     = format(bin_start_local, "%H:%M"),
-    bin_label_utc2local = format(bin_start_utc2local, "%H:%M")
-  )
-
-# 查看前几行（你也可以 View(raw_aug)）
-raw_aug %>%
-  select(all_of(time_col), dt_local, dt_utc2local,
-         bin96_local, bin96_utc2local,
-         bin_label_local, bin_label_utc2local) %>%
-  head(12) %>%
-  print()
-
-```
-
-```{r}
-library(dplyr)
-library(tidyr)
 library(ggplot2)
 
-# —— 基于 bin96_local 统计并作图（纯序号 1..96） ——
-counts_local <- raw_aug %>%
-  filter(!is.na(bin96_local)) %>%
-  count(bin96_local, name = "trips") %>%
-  complete(bin96_local = 1:96, fill = list(trips = 0)) %>%
-  arrange(bin96_local)
+od <- "../data/od_matrix.csv"  # 需包含列: t,i,j,demand
 
-ggplot(counts_local, aes(x = bin96_local, y = trips, group = 1)) +
+od_matrix <- read_csv(od, show_col_types = FALSE)
+
+# 若只想画某一方向，可先 filter(i=="00000308", j=="00000317")
+counts_local <- od_matrix %>%
+  mutate(t = as.integer(t),
+         demand = as.numeric(demand)) %>%
+  group_by(t) %>%
+  summarise(demand = sum(demand, na.rm = TRUE), .groups = "drop") %>%
+  arrange(t)
+
+ggplot(counts_local, aes(x = t, y = demand)) +
   geom_line() +
-  scale_x_continuous(breaks = seq(1, 96, by = 4)) +  # 只显示数字索引（可改 by）
+  scale_x_continuous(breaks = seq(1, 96, by = 4)) +
   labs(
     title = "Trips per 15-minute bin (index 1..96)",
     x = "Bin index (1..96)", y = "Trips"
   ) +
   theme_minimal()
 
-# =====（可选）如果想用 UTC->本地口径，改用下方几行：=====
-# counts_utc <- raw_aug %>%
-#   filter(!is.na(bin96_utc2local)) %>%
-#   count(bin96_utc2local, name = "trips") %>%
-#   complete(bin96_utc2local = 1:96, fill = list(trips = 0)) %>%
-#   arrange(bin96_utc2local)
-# ggplot(counts_utc, aes(bin96_utc2local, trips, group = 1)) +
-#   geom_line() +
-#   scale_x_continuous(breaks = seq(1, 96, by = 4)) +
-#   labs(title = "Trips per 15-minute bin (index 1..96, UTC→local)",
-#        x = "Bin index (1..96)", y = "Trips") +
-#   theme_minimal()
-
 ```
+

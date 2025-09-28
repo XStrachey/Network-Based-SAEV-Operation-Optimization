@@ -34,7 +34,7 @@ import argparse
 import sys
 import os
 
-def load_flows_data(flows_path: str = "src/outputs/flows.parquet") -> pd.DataFrame:
+def load_flows_data(flows_path: str = "src/pipeline/outputs/flows.parquet") -> pd.DataFrame:
     """加载流量数据"""
     flows_file = Path(flows_path)
     if not flows_file.exists():
@@ -530,7 +530,7 @@ def print_detailed_stats(df: pd.DataFrame, df_corrected: pd.DataFrame, aggregate
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description='Visualize arc flows by time step and category (corrected version)')
-    parser.add_argument('--flows-path', default='src/outputs/flows.parquet',
+    parser.add_argument('--flows-path', default='src/pipeline/outputs/flows.parquet',
                        help='Path to flows.parquet file')
     parser.add_argument('--output-dir', default='.',
                        help='Output directory for visualization files')

@@ -1,0 +1,13 @@
+{
+  "stop_on_fail": true,
+  "default_python": "python3",
+  "default_timeout": 0,
+  "steps": [
+    {
+      "script": "_01_build_solver_graph.py"
+    },
+    {
+      "script": "_02_solve_graph_mincost.py"
+    }
+  ]
+}
