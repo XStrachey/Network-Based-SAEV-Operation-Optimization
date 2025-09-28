@@ -113,6 +113,77 @@ def _compute_supply_vector_at_t0(V0: pd.DataFrame, nodes: pd.DataFrame, t0: int)
     nodes_out.loc[sel.notna(), "supply"] = sel.dropna().astype(float)
     return nodes_out[["node_id","zone","t","soc","supply"]]
 
+
+def _add_total_fleet_source_arcs(arcs: pd.DataFrame, initial_nodes: Set[int], 
+                                initial_inventory: pd.DataFrame, nodes: pd.DataFrame,
+                                cost_from_source: float = 0.0) -> Tuple[pd.DataFrame, int]:
+    """添加总车队源节点到所有初始库存节点的弧"""
+    if not initial_nodes:
+        return arcs, 0
+    
+    source_id = _pseudo_node_id("total_fleet_source")
+    
+    # 构建从总源到各初始节点的弧
+    add_df = pd.DataFrame({
+        "arc_type": "from_source",
+        "from_node_id": int(source_id),
+        "to_node_id": list(map(int, initial_nodes)),
+        "cost": float(cost_from_source),
+        "capacity": float('inf'),  # 容量由初始库存约束
+    })
+    
+    # 设置弧ID
+    add_df["arc_id"] = pd.util.hash_pandas_object(
+        add_df[["arc_type","from_node_id","to_node_id"]].astype(str).agg("|".join, axis=1), index=False
+    ).astype("int64") & np.int64(0x7FFFFFFFFFFFFFFF)
+    
+    # 对齐字段
+    for c in arcs.columns:
+        if c not in add_df.columns:
+            add_df[c] = pd.NA
+    
+    arcs_out = pd.concat([arcs, add_df[arcs.columns]], ignore_index=True)
+    return arcs_out, int(source_id)
+
+
+def _compute_supply_vector_with_source(nodes: pd.DataFrame, V0: pd.DataFrame, 
+                                     t0: int, source_id: int, sink_id: int) -> pd.DataFrame:
+    """计算包含总源和汇点的完整供给向量"""
+    nodes_out = nodes.copy()
+    nodes_out["supply"] = 0.0
+    
+    # 设置初始库存节点的供给（现在设为0，因为流量来自总源）
+    # 原来的逻辑被注释掉，因为现在流量通过from_source弧提供
+    # sub = V0[(V0["t"] == int(t0)) & (V0["count"] > 0)].copy()
+    # if not sub.empty:
+    #     jj = sub.merge(nodes, on=["zone","t","soc"], how="left", validate="many_to_one")
+    #     if not jj["node_id"].isna().all():
+    #         g = jj.dropna(subset=["node_id"]).groupby("node_id", as_index=False)["count"].sum()
+    #         mp = dict(zip(g["node_id"].astype(np.int64), g["count"].astype(float)))
+    #         sel = nodes_out["node_id"].map(mp)
+    #         nodes_out.loc[sel.notna(), "supply"] = sel.dropna().astype(float)
+    
+    # 添加总源节点（正供给）
+    total_fleet_size = float(V0["count"].sum())
+    source_row = pd.DataFrame({
+        "node_id": [source_id],
+        "supply": [total_fleet_size],
+        "zone": [pd.NA],
+        "t": [pd.NA], 
+        "soc": [pd.NA]
+    })
+    
+    # 添加超级汇点（负供给）
+    sink_row = pd.DataFrame({
+        "node_id": [sink_id],
+        "supply": [-total_fleet_size],
+        "zone": [pd.NA],
+        "t": [pd.NA],
+        "soc": [pd.NA]
+    })
+    
+    return pd.concat([nodes_out, source_row, sink_row], ignore_index=True)
+
 def _add_super_sink_arcs(arcs: pd.DataFrame, final_nodes: Set[int], nodes: pd.DataFrame, 
                         cost_to_sink: float = 0.0, cap_inf: float = 1e12, 
                         end_soc_config=None) -> Tuple[pd.DataFrame, int]:
@@ -274,11 +345,21 @@ def build_solver_graph(
         arcs_costed["cost"] = 0.0
     arcs_costed["cost"] = arcs_costed["coef_total"].fillna(0.0).astype(float)
 
-    # 7) 可选：添加超级汇点
+    # 7) 添加总车队源节点
+    source_id = None
+    arcs_with_source, source_id = _add_total_fleet_source_arcs(
+        arcs_costed,
+        initial_nodes=start_nodes,
+        initial_inventory=V0,
+        nodes=nodes,
+        cost_from_source=0.0
+    )
+
+    # 8) 可选：添加超级汇点
     sink_id = None
     if add_sink:
-        arcs_costed, sink_id = _add_super_sink_arcs(
-            arcs_costed, 
+        arcs_with_source, sink_id = _add_super_sink_arcs(
+            arcs_with_source, 
             final_nodes=final_nodes, 
             nodes=nodes,
             cost_to_sink=float(cost_to_sink), 
@@ -286,49 +367,51 @@ def build_solver_graph(
             end_soc_config=cfg.end_soc
         )
 
-    # 8) 节点供给
-    nodes_with_supply = _compute_supply_vector_at_t0(V0, nodes, t0=int(t0))
+    # 9) 节点供给（使用新的包含总源和汇点的逻辑）
     if add_sink:
-        total_sup = float(nodes_with_supply["supply"].sum())
-        sink_row = pd.DataFrame({"node_id":[int(sink_id)], "zone":[pd.NA], "t":[pd.NA], "soc":[pd.NA], "supply":[-total_sup]})
-        nodes_with_supply = pd.concat([nodes_with_supply, sink_row], ignore_index=True)
+        nodes_with_supply = _compute_supply_vector_with_source(
+            nodes, V0, t0=int(t0), source_id=source_id, sink_id=sink_id
+        )
+    else:
+        # 如果不添加汇点，只添加总源节点
+        nodes_with_supply = _compute_supply_vector_at_t0(V0, nodes, t0=int(t0))
+        total_fleet_size = float(V0["count"].sum())
+        source_row = pd.DataFrame({
+            "node_id": [source_id],
+            "supply": [total_fleet_size],
+            "zone": [pd.NA],
+            "t": [pd.NA], 
+            "soc": [pd.NA]
+        })
+        nodes_with_supply = pd.concat([nodes_with_supply, source_row], ignore_index=True)
 
-    # >>> 新增：补齐伪节点（svc_in/svc_out/q_in/q_out 等），设为 0 供给 <<<
-    all_arc_nodes = set(arcs_costed["from_node_id"].dropna().astype(np.int64)) \
-                | set(arcs_costed["to_node_id"].dropna().astype(np.int64))
+    # 10) 补齐伪节点（svc_in/svc_out/q_in/q_out 等），设为 0 供给
+    all_arc_nodes = set(arcs_with_source["from_node_id"].dropna().astype(np.int64)) \
+                | set(arcs_with_source["to_node_id"].dropna().astype(np.int64))
     known_nodes = set(nodes_with_supply["node_id"].dropna().astype(np.int64))
     missing = sorted(all_arc_nodes - known_nodes)
     if missing:
-        # 保留超级汇点的供给设置，其他伪节点设为0供给
-        pseudo_supplies = []
-        for node_id in missing:
-            if node_id == sink_id:
-                # 保持超级汇点的负供给
-                pseudo_supplies.append(-total_sup)
-            else:
-                # 其他伪节点设为0供给
-                pseudo_supplies.append(0.0)
-        
+        # 其他伪节点设为0供给（总源和汇点的供给已经在前面设置好了）
         pseudo_rows = pd.DataFrame({
             "node_id": missing,
             "zone": pd.NA, "t": pd.NA, "soc": pd.NA,
-            "supply": pseudo_supplies
+            "supply": 0.0
         })
         nodes_with_supply = pd.concat([nodes_with_supply, pseudo_rows], ignore_index=True)
 
-    # 9) 仅保留弧中实际出现的节点
-    used_nodes = set(arcs_costed["from_node_id"].dropna().astype(np.int64)) | set(arcs_costed["to_node_id"].dropna().astype(np.int64))
+    # 11) 仅保留弧中实际出现的节点
+    used_nodes = set(arcs_with_source["from_node_id"].dropna().astype(np.int64)) | set(arcs_with_source["to_node_id"].dropna().astype(np.int64))
     nodes_final = nodes_with_supply[nodes_with_supply["node_id"].isin(used_nodes)].copy()
 
-    # 10) 落盘
+    # 12) 落盘
     arc_keep_cols = (
         ["arc_id","arc_type","from_node_id","to_node_id","cost","capacity"] +
         [c for c in ["t","i","j","k","tau","tau_total","tau_tochg","tau_chg","de","de_tochg","l","l_to","level","is_last_step","req_key"]
-         if c in arcs_costed.columns] +
+         if c in arcs_with_source.columns] +
         [c for c in ["coef_rep","coef_chg_travel","coef_chg_occ","coef_svc_gate","coef_total"]
-         if c in arcs_costed.columns]
+         if c in arcs_with_source.columns]
     )
-    arcs_final = arcs_costed[arc_keep_cols].drop_duplicates(subset=["arc_id"]).reset_index(drop=True)
+    arcs_final = arcs_with_source[arc_keep_cols].drop_duplicates(subset=["arc_id"]).reset_index(drop=True)
 
     out_dir_p = Path(out_dir)
     _ensure_dir(out_dir_p)
@@ -347,18 +430,25 @@ def build_solver_graph(
         "require_bwd": bool(require_bwd),
         "add_sink": bool(add_sink),
         "cap_infinite": float(cap_infinite),
-        "architecture": "new_oop",  # 标识使用新架构
+        "architecture": "new_oop_with_total_source",  # 标识使用新架构+总车队源节点
         "nodes": len(nodes_final),
         "arcs": len(arcs_final),
         "sup_total": float(nodes_with_supply["supply"].clip(lower=0).sum()),
+        "source_node_id": int(source_id) if source_id is not None else None,
         "sink_node_id": int(sink_id) if sink_id is not None else None,
+        "total_fleet_size": float(V0["count"].sum()),
+        "flow_conservation": "complete",  # 标识完整的流守恒约束
         "paths": {"nodes": str(nodes_path), "arcs": str(arcs_path)},
     }
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     print("[solver-graph] done.")
     print(f"  use cfg: t0={t0} (start_step), H={H} (window_length), t_hi={t_hi}")
-    print(f"  architecture: new_oop")
+    print(f"  architecture: new_oop_with_total_source")
+    print(f"  total fleet size: {float(V0['count'].sum()):,.1f}")
+    print(f"  source node ID: {source_id}")
+    if sink_id is not None:
+        print(f"  sink node ID: {sink_id}")
     print(f"  nodes: {len(nodes_final):,} -> {nodes_path}")
     print(f"  arcs : {len(arcs_final):,} -> {arcs_path}")
     print(f"  meta : {meta_path}")

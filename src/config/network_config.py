@@ -25,9 +25,9 @@ class Paths:
 class TimeSOC:
     dt_minutes: int = 15
     start_step: int = 1
-    end_step: int = 96
-    window_length: int = 92           # 窗口长度 H
-    overhang_steps: int = 4          # Halo：窗外可见/可到达的"缓冲步数"（建议 2~6）
+    end_step: int = 10
+    window_length: int = 8           # 窗口长度 H
+    overhang_steps: int = 2          # Halo：窗外可见/可到达的"缓冲步数"（建议 2~6）
     roll_step: int = 1
     soc_levels: List[int] = None
 
@@ -58,7 +58,7 @@ class CostsAndEquity:
     beta_chg: float = 1.0                # 充电占用系数 β_chg_p2
 
     # —— 服务奖励 / 未满足惩罚 —— 
-    unmet_weight_default: float = 15.7    # 06 的 svc_gate 奖励可等价为 -VOT*unmet_weight_default
+    unmet_weight_default: float = 157    # 06 的 svc_gate 奖励可等价为 -VOT*unmet_weight_default
 
     # —— 新目标函数：收益项系数（请保持非负）——
     gamma_reposition_reward: float = 0.2  # 重定位收益系数 γ_rep（施加在 reposition 弧，按目的地 j 与 t）

@@ -127,7 +127,10 @@ def _sanitize_graph(nodes: pd.DataFrame, arcs: pd.DataFrame, big_cap: float = 1e
     a["from_node_id"] = a["from_node_id"].astype("int64")
     a["to_node_id"] = a["to_node_id"].astype("int64")
     a["cost"] = pd.to_numeric(a["cost"], errors="coerce").fillna(0.0).astype(float)
-    a["capacity"] = pd.to_numeric(a["capacity"], errors="coerce").fillna(big_cap).clip(lower=0.0).astype(float)
+    a["capacity"] = pd.to_numeric(a["capacity"], errors="coerce").fillna(big_cap).clip(lower=0.0)
+    # 将无穷大值替换为有限的大值
+    a.loc[np.isinf(a["capacity"]), "capacity"] = big_cap
+    a["capacity"] = a["capacity"].astype(float)
 
     used_nodes = set(a["from_node_id"].tolist()) | set(a["to_node_id"].tolist())
     has_supply = set(n.loc[n["supply"].abs() > 0, "node_id"].tolist())

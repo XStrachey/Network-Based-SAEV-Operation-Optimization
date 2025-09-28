@@ -1,8 +1,44 @@
-# 模型概览（Min-Cost Flow over a time–SOC network）
+# 网络化SAEV运营优化模型（Min-Cost Flow over a time–SOC network）
 
-我们在离散化的时空—电量网格上做最小费用流。
-节点包含：真实网格节点 $(i,t,\ell)$（区域 $i$、时间步 $t$、SOC 等级 $\ell$），以及若干**伪节点**：服务闸门节点 $\mathrm{svc\_in}(i,j,t),\mathrm{svc\_out}(i,j,t)$，充电队列节点 $\mathrm{q\_in}(k,p),\mathrm{q\_out}(k,p)$，以及可选的超级汇点 $\mathrm{sink}$。
-弧按 04 中实现拆分为 4 大类 10 种细分类型，并为特定类型设置容量与（时间可变的）费用/奖励。
+## 模型概览
+
+我们在离散化的时空—电量网格上构建最小费用流优化模型，用于优化共享自动驾驶电动汽车(SAEV)的运营调度。
+
+### 核心组件
+
+**节点类型**：
+- **真实网格节点** $(i,t,\ell)$：区域 $i$、时间步 $t$、SOC 等级 $\ell$
+- **服务闸门节点** $\mathrm{svc\_in}(i,j,t),\mathrm{svc\_out}(i,j,t)$：服务需求约束
+- **充电队列节点** $\mathrm{q\_in}(k,p),\mathrm{q\_out}(k,p)$：充电站并发容量约束
+- **总车队源节点** $\mathrm{source\_total}$：代表总车队规模，为初始节点提供入度
+- **超级汇点** $\mathrm{sink}$（可选）：网络流平衡
+
+**弧类型**：按功能分为 4 大类 10 种细分类型，每种弧都有特定的容量约束和成本结构。
+
+### 数学建模
+
+**目标函数**：
+$$\min \sum_{a \in \mathcal{A}} c_a x_a$$
+
+其中：
+- $c_a$ 是弧 $a$ 的单位成本（包含时间成本、占位成本、奖励等）
+- $x_a$ 是弧 $a$ 上的流量（连续变量）
+
+**约束条件**：
+1. **流守恒约束**：$\sum_{a \in \delta^-(v)} x_a - \sum_{a \in \delta^+(v)} x_a = s_v, \quad \forall v \in \mathcal{V}$
+2. **容量约束**：$0 \leq x_a \leq u_a, \quad \forall a \in \mathcal{A}$
+3. **非负约束**：$x_a \geq 0, \quad \forall a \in \mathcal{A}$
+
+其中：
+- $\delta^-(v)$ 和 $\delta^+(v)$ 分别是以节点 $v$ 为入端和出端的弧集合
+- $s_v$ 是节点 $v$ 的供给量（正值为源，负值为汇）
+- $u_a$ 是弧 $a$ 的容量上限
+
+**流守恒约束的完整性**：
+- **总车队源节点**：$s_{source} = +\sum_{i,\ell} V_0(i,\ell)$，为所有初始节点提供入度
+- **中间节点**：$s_v = 0$，入流等于出流
+- **超级汇点**：$s_{sink} = -\sum_{i,\ell} V_0(i,\ell)$，吸收所有最终流量
+- 这确保了网络中每个节点都有完整的入度和出度（除了源点和汇点）
 
 ## 新增功能特性
 
@@ -30,6 +66,7 @@
 - **滚动窗口**: 支持大规模时间范围的滚动优化
 - **内存管理**: 优化的内存使用和垃圾回收
 - **并行处理**: 支持多窗口并行求解
+- **数值稳定性**: 自动处理无穷大容量值，确保PuLP求解器兼容性
 
 ### 配置管理系统
 - **NetworkConfig**: 统一的配置管理类
@@ -98,10 +135,12 @@
 * 单次充电的**目标 SOC 增量**：$\delta_{\min}=$ `cfg.charge_queue.min_charge_step`（默认20），对起始 $\ell$ 令 $\ell^{\star}=\ell+\min\{\delta_{\min},\,100-\ell\}$。
 * 充电站容量：$u_{k,p}=\max\{1,\lfloor \mathrm{plugs}_k \times \mathrm{util\_factor}_k \times \mathrm{queue\_relax\_factor} \rfloor\}$，其中 `queue_relax_factor` 来自 `cfg.charge_queue.queue_relax_factor`（默认1.2）。
 
-**初始供给与超级汇点**
+**初始供给与网络平衡**
 
 * 初始库存 $V_0(i,\ell)$（仅 $t=t_0$）来自 `initial_inventory.parquet`。
-* 超级汇点 $\mathrm{sink}$（可选）：所有 $t=t_{\mathrm{hi}}$ 的网格节点连到 $\mathrm{sink}$。
+* **总车队源节点** $\mathrm{source\_total}$：供给量 $s_{source} = +\sum_{i,\ell} V_0(i,\ell)$，连接到所有有初始库存的节点。
+* **超级汇点** $\mathrm{sink}$（可选）：供给量 $s_{sink} = -\sum_{i,\ell} V_0(i,\ell)$，所有 $t=t_{\mathrm{hi}}$ 的网格节点连到 $\mathrm{sink}$。
+* 这种设计确保了完整的流守恒约束：每个中间节点都有入度和出度。
 
 ---
 
@@ -111,7 +150,7 @@
 
 $$
 \mathcal V=\underbrace{\{(i,t,\ell)\in\mathcal Z\times\mathcal T\times\mathcal L\}}_{\text{网格节点}}
-\,\cup\,\{\mathrm{svc\_in}(i,j,t),\ \mathrm{svc\_out}(i,j,t)\}\,\cup\,\{\mathrm{q\_in}(k,p),\ \mathrm{q\_out}(k,p)\}\,\cup\,\{\mathrm{sink}\ \text{(可选)}\}.
+\,\cup\,\{\mathrm{svc\_in}(i,j,t),\ \mathrm{svc\_out}(i,j,t)\}\,\cup\,\{\mathrm{q\_in}(k,p),\ \mathrm{q\_out}(k,p)\}\,\cup\,\{\mathrm{source\_total},\ \mathrm{sink}\ \text{(可选)}\}.
 $$
 
 **弧集合**（仅生成“**出发时刻** $t\in[t_0,t_{\mathrm{hi}}-1]$”的弧；允许“**到达** $\le t_{\max}^{\text{arr}}$”）
@@ -156,6 +195,8 @@ $$
 
 > 口径说明：$\mathrm{util\_factor}_k\in[0,1]$ 表示期望利用率（或可用率）；$\mathrm{queue\_relax\_factor}\ge 1$ 允许在网络流里**放松**并发上限（例如考虑排队“软容量”）。保守设置推荐 $\varphi=\lfloor\cdot\rfloor$。
 
+* **From-source**：从总车队源节点 $\mathrm{source\_total}$ 到所有有初始库存的节点 $(i,t_0,\ell)$，容量等于初始库存 $V_0(i,\ell)$，成本为 $\texttt{cost\_from\_source}$（默认 0）。
+
 * **To-sink（可选）**：对于所有 $t=t_{\mathrm{hi}}$ 的网格节点 $v$，添加 $v\to \mathrm{sink}$ 的弧，容量为大数 $U$（默认 $10^{12}$），成本为 $\texttt{cost\_to\_sink}$（默认 0）。
 
 > 实现细节一致性：所有弧都会**剔除自环** $(\texttt{from}=\texttt{to})$；服务闸门本身构造即可避免自环，成本模块（06）仍对异常自环做零化保护。
@@ -185,7 +226,8 @@ $$
 **节点供给**
 令节点供给 $s_v$：
 
-* $s_{(i,t_0,\ell)}=V_0(i,\ell)$（仅起始步且 $V_0>0$）；
+* $s_{\mathrm{source\_total}}=+\sum_{i,\ell}V_0(i,\ell)$（总车队源节点）；
+* $s_{(i,t_0,\ell)}=0$（初始库存节点，通过from-source弧接收流量）；
 * 若使用超级汇点：$s_{\mathrm{sink}}=-\sum_{i,\ell}V_0(i,\ell)$；
 * 其余节点 $s_v=0$。
 
@@ -202,17 +244,102 @@ $$
 
 ---
 
-# 六、费用（06：系数调度 + 负成本奖励）
+# 六、成本结构（时间可变系数 + 奖励机制）
 
-总费用为弧费用之和：
+## 总成本函数
 
-$$
-\min \; \sum_{a\in\mathcal A} c_a\,x_a,
-\qquad c_a = c^{\text{rep}}_a + c^{\text{chg-travel}}_a + c^{\text{occ}}_a
-            + c^{\text{svc-gate}}_a + c^{\text{rep-reward}}_a + c^{\text{chg-reward}}_a,
-$$
+每条弧的总成本由以下组件构成：
 
-未涉及的类型其对应项取 0。
+$$c_a = c^{\text{rep}}_a + c^{\text{chg-travel}}_a + c^{\text{occ}}_a + c^{\text{svc-gate}}_a + c^{\text{rep-reward}}_a + c^{\text{chg-reward}}_a + c^{\text{idle}}_a$$
+
+其中未涉及的类型其对应项取 0。
+
+## 成本组件详细定义
+
+### 1. 重定位成本 $c^{\text{rep}}_a$
+
+**适用弧类型**：`reposition`
+
+**数学表达式**：
+$$c^{\text{rep}}_a = \mathrm{VOT} \cdot \sum_{q=0}^{\tau-1} \gamma_{\text{rep\_p}}(t+q)$$
+
+**实现细节**：
+- $\mathrm{VOT}$：时间价值系数（默认1.0）
+- $\gamma_{\text{rep\_p}}(t)$：时间可变的重定位成本系数
+- 来源：`coeff_schedule.csv` 或配置常数 `cfg.costs_equity.gamma_rep`
+
+### 2. 去充电行驶成本 $c^{\text{chg-travel}}_a$
+
+**适用弧类型**：`tochg`
+
+**数学表达式**：
+$$c^{\text{chg-travel}}_a = \mathrm{VOT} \cdot \sum_{q=0}^{\tau_{\text{tochg}}-1} \beta_{\text{chg\_p1}}(t+q)$$
+
+**实现细节**：
+- $\beta_{\text{chg\_p1}}(t)$：时间可变的去充电行驶成本系数
+- 来源：`coeff_schedule.csv` 或配置常数 `cfg.costs_equity.beta_toCHG`
+
+### 3. 充电占位成本 $c^{\text{occ}}_a$
+
+**适用弧类型**：`chg_occ`
+
+**数学表达式**：
+$$c^{\text{occ}}_a = \mathrm{VOT} \cdot \beta_{\text{chg\_p2}}(p)$$
+
+**实现细节**：
+- $\beta_{\text{chg\_p2}}(p)$：充电占位成本系数
+- $p$ 是该占位步的时刻
+- 来源：`coeff_schedule.csv` 或配置常数 `cfg.costs_equity.beta_chg`
+
+### 4. 服务奖励 $c^{\text{svc-gate}}_a$（负成本）
+
+**适用弧类型**：`svc_gate`
+
+**数学表达式**：
+$$c^{\text{svc-gate}}_a = -\mathrm{VOT} \cdot w_{ijt}$$
+
+**实现细节**：
+- $w_{ijt}$：服务权重，默认来自 `cfg.costs_equity.unmet_weight_default`
+- 可被 `cfg.unmet_weights_overrides[t][(i,j)]` 覆盖
+- 受 `cfg.flags.enable_service_reward` 控制
+
+### 5. 重定位收益 $c^{\text{rep-reward}}_a$（负成本）
+
+**适用弧类型**：`reposition`
+
+**数学表达式**：
+$$c^{\text{rep-reward}}_a = -\gamma_{\text{rep}} \cdot \text{zone\_value}(t,j)$$
+
+**区域价值计算**：
+$$\text{zone\_value}(t,j) = \max\left\{\sum_i D_{ijt}^{\text{out}} - \text{inv}_0(j), 0\right\}$$
+
+**实现细节**：
+- $\gamma_{\text{rep}}$：重定位收益系数（默认0.2）
+- 归一化模式：`per_t_sum`, `per_t_max`, `global_max`, `window_sum`, `none`
+- 受 `cfg.flags.enable_reposition_reward` 控制
+
+### 6. 充电收益 $c^{\text{chg-reward}}_a$（负成本）
+
+**适用弧类型**：`chg_occ`, `chg_step`
+
+**数学表达式**：
+$$c^{\text{chg-reward}}_a = -\alpha_{\text{chg}} \cdot \max\{\ell_{\text{to}} - \ell, 0\}$$
+
+**实现细节**：
+- $\alpha_{\text{chg}}$：充电收益系数（默认0.02）
+- 基于SOC变化量计算
+- 受 `cfg.flags.enable_charging_reward` 控制
+
+### 7. Idle机会成本 $c^{\text{idle}}_a$
+
+**适用弧类型**：`idle`
+
+**数学表达式**：
+$$c^{\text{idle}}_a = \text{idle\_opportunity\_cost}$$
+
+**实现细节**：
+- 常数成本（默认10.0）
+- 来源：`cfg.costs_equity.idle_opportunity_cost`
 
 **时间可变系数（$\gamma_{rep_p},\beta_{chg_{p1}},\beta_{chg_{p2}}$，带后备常数）**
 
@@ -370,7 +497,9 @@ class PruningRules:
 
 # 八、完整优化问题
 
-令 $\mathcal A$ 为上节裁剪后弧集，$\mathcal V$ 为实际被弧触达的节点集（含伪节点与可选汇点），则最终问题是：
+## 标准最小费用流问题
+
+令 $\mathcal A$ 为裁剪后的弧集，$\mathcal V$ 为实际被弧触达的节点集（含伪节点与可选汇点），则最终优化问题为：
 
 $$
 \begin{aligned}
@@ -381,7 +510,54 @@ $$
 \end{aligned}
 $$
 
-其中 $c_a$ 与 $u_a$ 按**第六节**和**第四节**给定；$\delta^\pm(v)$ 由**第二节**的弧定义给出。
+## 求解器实现
+
+### 1. 线性规划求解器（GLPK/CBC）
+
+**实现文件**：`_02_solve_graph_mincost.py`
+
+**特点**：
+- 使用 PuLP 库构建线性规划模型
+- 支持 GLPK 和 CBC 求解器自动选择
+- 支持超时控制和求解状态监控
+- 输出最优流量分配和求解统计
+
+**求解流程**：
+1. 读取图结构（节点和弧）
+2. 数据清洗和类型转换
+3. 供需平衡检查
+4. 构建线性规划模型
+5. 选择求解器并求解
+6. 输出结果和统计信息
+
+### 2. 网络单纯形求解器（SSP）
+
+**实现文件**：`_03_network_simplex_solver.py`
+
+**特点**：
+- 使用 Successive Shortest Path (SSP) 算法
+- 带势维护的约化费用计算
+- 支持大规模网络的高效求解
+- 内存优化的残量图表示
+
+**算法流程**：
+1. 构建残量图
+2. 初始化势向量
+3. 主循环：寻找最短路径并增广
+4. 更新势向量
+5. 直到所有供给分配完毕
+
+### 3. 求解器选择策略
+
+**自动选择**：
+- 优先使用 GLPK（开源，稳定）
+- 失败时回退到 CBC（功能更全面）
+- 支持超时控制和错误处理
+
+**性能对比**：
+- 小规模问题：GLPK 更快
+- 大规模问题：CBC 更稳定
+- 网络单纯形：内存效率更高
 
 ---
 

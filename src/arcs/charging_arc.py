@@ -294,13 +294,6 @@ class ChargingArc(ArcBase):
             vot = cp.vot
             beta_chg_p2 = cp.beta_chg_p2(arc.t)
             cost.coef_chg_occ = vot * beta_chg_p2
-            
-            # 充电奖励（负成本）
-            if hasattr(self.cfg, 'flags') and getattr(self.cfg.flags, 'enable_charging_reward', True):
-                beta_chg_a = float(self.cfg.costs_equity.beta_chg_reward)
-                # 对于chg_occ，奖励基于容量提示（表示充电站的价值）
-                if arc.cap_hint is not None and arc.cap_hint > 0:
-                    cost.coef_chg_reward = -beta_chg_a * float(arc.cap_hint)
                     
         elif arc.arc_type == "chg_step":
             # chg_step的成本主要来自奖励

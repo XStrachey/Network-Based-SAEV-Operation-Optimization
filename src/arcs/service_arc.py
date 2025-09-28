@@ -43,9 +43,10 @@ class ServiceArc(ArcBase):
         od = load_od_matrix(self.cfg)
         od = od[od["demand"] > 0].copy()
         
-        # 时间过滤
+        # 时间过滤 - 修复：允许生成所有时间段的service弧
         if t0 is not None:  # 窗口模式
-            od = od[(od["t"] >= t0) & (od["t"] <= t_hi - 1)]
+            # 允许生成所有时间段的service弧，让优化器决定可行性
+            od = od[(od["t"] >= t0) & (od["t"] < t_hi)]
         
         if od.empty:
             return []
@@ -57,7 +58,6 @@ class ServiceArc(ArcBase):
         # 计算到达时间上限
         arrival_end = min(t_hi + int(B) if (t_hi is not None and B is not None) else self.gi.times[-1], self.gi.times[-1])
         soc_levels = np.array(self.gi.socs, dtype=int)
-        soc_step = int(np.diff(soc_levels).min()) if len(soc_levels) > 1 else 100
         
         arcs = []
         for _, r in srv.iterrows():

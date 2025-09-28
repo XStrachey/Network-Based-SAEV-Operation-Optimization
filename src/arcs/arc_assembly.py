@@ -190,11 +190,6 @@ class ArcAssembly:
                 if hasattr(self.cfg, 'flags') and getattr(self.cfg.flags, 'enable_charging_reward', True):
                     beta_chg_a = float(self.cfg.costs_equity.beta_chg_reward)
                     
-                    # chg_occ奖励
-                    df.loc[occ_mask, "coef_chg_reward"] = df.loc[occ_mask].apply(
-                        lambda r: -beta_chg_a * float(r.get("cap_hint", 0)), axis=1
-                    )
-                    
                     # chg_step奖励
                     step_mask = df["arc_type"] == "chg_step"
                     df.loc[step_mask, "coef_chg_reward"] = df.loc[step_mask].apply(
