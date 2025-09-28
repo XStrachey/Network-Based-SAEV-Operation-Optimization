@@ -54,7 +54,7 @@
 
 * 基础步长：$\Delta t=$ `cfg.time_soc.dt_minutes`（分钟，默认15分钟）。
 * 窗口：给定 $t_0$ 与 $H$，令 $t_{\mathrm{hi}}=\min({t_{end\_step}},\, t_0+H)$ 。
-* Halo：到达上限 $t_{\max}^{\text{arr}}=\min(t_{\mathrm{hi}}+B,\ \max(\mathcal T))$，其中 $B=$ `cfg.arcgen.halo_steps`（若空用 `overhang_steps`，默认6步）。
+* Halo：到达上限 $t_{\max}^{\text{arr}}=\min(t_{\mathrm{hi}}+B,\ \max(\mathcal T))$，其中 $B=$ `overhang_steps`，默认6步）。
 * SOC 等级集合 $\mathcal L=\{0,5,\dots,100\}$（或配置等距集合），记间距 $\Delta_\ell$。
 * 滚动步长：`cfg.time_soc.roll_step`（默认1步）。
 

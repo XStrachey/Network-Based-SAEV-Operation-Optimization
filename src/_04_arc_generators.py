@@ -607,7 +607,7 @@ def generate_arcs_for_window(t0: int, H: int,
 
     - 出发窗口：t ∈ [t0, t_hi-1]，其中 t_hi = min(end_step, t0 + H)
     - 到达上限：t_arr ≤ min(t_hi + B, 全局 max_t)
-      其中 B = cfg.arcgen.halo_steps 或 cfg.time_soc.overhang_steps
+      其中 B = cfg.time_soc.overhang_steps
 
     新增/变更的 arc_type：
       idle:        ["idle"]
@@ -623,7 +623,7 @@ def generate_arcs_for_window(t0: int, H: int,
 
     t_hi = min(int(cfg.time_soc.end_step), int(t0 + H))
     # Halo
-    B = int(cfg.arcgen.halo_steps) if cfg.arcgen.halo_steps is not None else int(cfg.time_soc.overhang_steps)
+    B = int(cfg.time_soc.overhang_steps)
 
     # 四类分别生成
     idle = build_idle_arcs(cfg, gi, reachable_set, t0, t_hi, B)

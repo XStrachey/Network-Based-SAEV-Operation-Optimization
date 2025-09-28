@@ -58,12 +58,14 @@ class CostsAndEquity:
     beta_chg: float = 1.0                # 充电占用系数 β_chg_p2
 
     # —— 服务奖励 / 未满足惩罚 —— 
-    unmet_weight_default: float = 1.0    # 06 的 svc_gate 奖励可等价为 -VOT*unmet_weight_default
-    alpha_unmet: float = 1.0              # 为与单期保持一致，单期里常写作 VOT*alpha_unmet
+    unmet_weight_default: float = 15.7    # 06 的 svc_gate 奖励可等价为 -VOT*unmet_weight_default
 
     # —— 新目标函数：收益项系数（请保持非负）——
-    gamma_reposition_reward: float = 1.0  # 重定位收益系数 γ_rep（施加在 reposition 弧，按目的地 j 与 t）
+    gamma_reposition_reward: float = 20  # 重定位收益系数 γ_rep（施加在 reposition 弧，按目的地 j 与 t）
     beta_chg_reward: float = 0.1                   # 充电收益系数 α_chg（施加在 chg_occ/step 弧，按 ΔSOC）
+    
+    # —— idle 机会成本 ——
+    idle_opportunity_cost: float = 5             # idle 弧的机会成本（每时间步）
 
     # zone_value 归一化
     zone_value_normalize: str = "per_t_sum"  # 选项: "none", "per_t_sum", "per_t_max", "global_max", "window_sum"
@@ -84,11 +86,10 @@ class EndSOCConstraints:
 @dataclass
 class PruningRules:
     # —— 你已有的字段（原样保留）——
-    max_reposition_tt: float = 30.0      # 若 τ_rep > 30 min，剪枝
+    max_reposition_tt: float = 45.0      # 若 τ_rep > 45 min，剪枝
     min_soc_for_reposition: int = 20     # SOC% 低于阈值不允许重定位
     reposition_nearest_zone_n: int = 16
     charge_nearest_station_n: int = 16
-    max_service_radius_zones: int = 0    # 0=不限制；>0 时仅保留邻近服务弧（在 04 中用）
     
     # —— 需求驱动的重定位弧生成参数 ——
     reposition_demand_ratio: float = 0.3          # 重定位需求相对于服务需求的比例
@@ -101,7 +102,7 @@ class PruningRules:
 @dataclass
 class SolverConfig:
     solver_name: str = "glpk"
-    time_limit_sec: int = 1800           # 默认延长到 30min，更符合你现在的规模
+    time_limit_sec: int = 3600           # 默认延长到 30min，更符合你现在的规模
     mip_gap: float = 0.01
     threads: int = 0
     verbose: bool = True
@@ -118,15 +119,6 @@ class ModelFlags:
     enable_service_reward: bool = True       # svc_gate 奖励（等价未满足惩罚）
     enable_reposition_reward: bool = True    # γ_rep * zone_value 的重定位收益
     enable_charging_reward: bool = True      # α_chg * ΔSOC 的充电收益
-
-# -------------------------
-# 动态弧生成的配置（Halo 等）
-# -------------------------
-@dataclass
-class ArcGenConfig:
-    mode: str = "dynamic"                # 'dynamic' | 'static'
-    # None 表示沿用 time_soc.overhang_steps；否则覆盖
-    halo_steps: Optional[int] = None
 
 @dataclass
 class EnergyRates:
@@ -156,9 +148,6 @@ class NetworkConfig:
     flags: ModelFlags = field(default_factory=ModelFlags)
     energy: EnergyRates = field(default_factory=EnergyRates)
     basic: BasicConfig = field(default_factory=BasicConfig)
-    # r1_prune 已移除 - 不再需要生成后裁剪
-
-    arcgen: ArcGenConfig = field(default_factory=ArcGenConfig)
 
     # C_level 的 (t,i,j) 权重覆盖（需要时自行填充）
     unmet_weights_overrides: Optional[Dict[int, Dict[Any, float]]] = None

@@ -4,6 +4,9 @@
   "default_timeout": 0,
   "steps": [
     {
+      "script": "clear_cache.py"
+    },
+    {
       "script": "_08_build_solver_graph.py"
     },
     {

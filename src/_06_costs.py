@@ -362,7 +362,7 @@ def build_service_reward_coefficients(save: bool = True) -> pd.DataFrame:
     from data_loader import load_od_matrix
     od = load_od_matrix(cfg)
 
-    # 若希望与单期一致，可把 unmet_weight_default 设为 alpha_unmet
+    # 若希望与单期一致，可把 unmet_weight_default
     base = float(cfg.costs_equity.unmet_weight_default)
     vot = float(cfg.costs_equity.vot)
 
@@ -579,7 +579,7 @@ def attach_costs_to_arcs_for_window(arc_df_win: pd.DataFrame) -> pd.DataFrame:
 
     # 初始化（先置 NaN，让 merge 的新值可以覆盖）
     for c in ["coef_rep","coef_chg_travel","coef_chg_occ","coef_svc_gate",
-              "coef_rep_reward","coef_chg_reward","coef_total"]:
+              "coef_rep_reward","coef_chg_reward","coef_idle","coef_total"]:
         if c not in out.columns:
             out[c] = np.nan
 
@@ -637,9 +637,16 @@ def attach_costs_to_arcs_for_window(arc_df_win: pd.DataFrame) -> pd.DataFrame:
     for c in ["coef_rep","coef_chg_travel","coef_chg_occ","coef_svc_gate","coef_rep_reward","coef_chg_reward"]:
         out[c] = _to_finite_float(out.get(c, 0.0), 0.0)
 
+    # 为 idle 弧添加机会成本
+    cfg = get_config()
+    idle_opportunity_cost = float(cfg.costs_equity.idle_opportunity_cost)
+    mask_idle = out["arc_type"].eq("idle")
+    out.loc[mask_idle, "coef_idle"] = idle_opportunity_cost
+    out.loc[~mask_idle, "coef_idle"] = 0.0
+
     out["coef_total"] = (
         out["coef_rep"] + out["coef_chg_travel"] + out["coef_chg_occ"] +
-        out["coef_svc_gate"] + out["coef_rep_reward"] + out["coef_chg_reward"]
+        out["coef_svc_gate"] + out["coef_rep_reward"] + out["coef_chg_reward"] + out["coef_idle"]
     )
 
     # 屏蔽“负成本自环”的 gate（防免费奖励）
