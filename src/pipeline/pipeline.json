@@ -8,6 +8,9 @@
     },
     {
       "script": "_02_solve_graph_mincost.py"
+    },
+    {
+      "script": "visualize_arc_flows_corrected.py"
     }
   ]
 }

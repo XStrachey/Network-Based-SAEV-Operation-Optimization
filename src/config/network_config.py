@@ -54,18 +54,18 @@ class CostsAndEquity:
 
     # —— 与时间表相匹配的“常数后备值”（当 coeff_schedule 缺失时使用）——
     gamma_rep: float = 1.0               # 重定位时间系数 γ_rep_p
-    beta_toCHG: float = 10000.0              # 去站时间系数 β_chg_p1
-    beta_chg: float = 100000.0                # 充电占用系数 β_chg_p2
+    beta_toCHG: float = 1.0              # 去站时间系数 β_chg_p1
+    beta_chg: float = 1.0                # 充电占用系数 β_chg_p2
 
     # —— 服务奖励 / 未满足惩罚 —— 
     unmet_weight_default: float = 15.7    # 06 的 svc_gate 奖励可等价为 -VOT*unmet_weight_default
 
     # —— 新目标函数：收益项系数（请保持非负）——
-    gamma_reposition_reward: float = 20  # 重定位收益系数 γ_rep（施加在 reposition 弧，按目的地 j 与 t）
-    beta_chg_reward: float = 0.1                   # 充电收益系数 α_chg（施加在 chg_occ/step 弧，按 ΔSOC）
+    gamma_reposition_reward: float = 0.2  # 重定位收益系数 γ_rep（施加在 reposition 弧，按目的地 j 与 t）
+    beta_chg_reward: float = 0.02                   # 充电收益系数 α_chg（施加在 chg_occ/step 弧，按 ΔSOC）
     
     # —— idle 机会成本 ——
-    idle_opportunity_cost: float = 5             # idle 弧的机会成本（每时间步）
+    idle_opportunity_cost: float = 10             # idle 弧的机会成本（每时间步）
 
     # zone_value 归一化
     zone_value_normalize: str = "per_t_sum"  # 选项: "none", "per_t_sum", "per_t_max", "global_max", "window_sum"
