@@ -30,9 +30,12 @@ class RepositionArc(ArcBase):
     
     def _compute_reposition_demand(self, t0: Optional[int] = None, t_hi: Optional[int] = None) -> pd.DataFrame:
         """
-        计算重定位需求矩阵
+        计算重定位需求矩阵 - 基于需求模式的重定位策略
         
-        基于当期目标区域车辆库存与未来4期平均需求的差额来计算重定位需求
+        新的策略：
+        1. 不依赖库存数据（因为库存是优化结果）
+        2. 基于OD需求模式识别重定位机会
+        3. 为高需求区域生成重定位弧
         """
         # 加载服务需求数据
         from utils.data_loader import load_od_matrix
@@ -45,130 +48,15 @@ class RepositionArc(ArcBase):
         if od.empty:
             return pd.DataFrame(columns=['i', 'j', 't', 'reposition_demand'])
         
-        # 加载当期车辆库存数据
-        current_inventory = self._load_current_inventory(t0, t_hi)
-        if current_inventory.empty:
-            print("[reposition_arc] Warning: No current inventory data found")
+        # 计算每个区域在每个时刻的需求模式
+        zone_demand_pattern = self._analyze_demand_patterns(od)
+        
+        if zone_demand_pattern.empty:
+            print("[reposition_arc] No demand patterns found")
             return pd.DataFrame(columns=['i', 'j', 't', 'reposition_demand'])
         
-        print(f"[reposition_arc] Loaded inventory data: {len(current_inventory)} records")
-        print(f"[reposition_arc] Inventory time range: {current_inventory['t'].min()} - {current_inventory['t'].max()}")
-        print(f"[reposition_arc] Total inventory: {current_inventory['supply'].sum()}")
-        
-        reposition_demand = []
-        
-        # 计算未来4期平均需求
-        future_periods = 4
-        all_times = sorted(od['t'].unique())
-        
-        # 为每个OD对计算未来4期平均需求
-        od_future_avg = []
-        for _, row in od.iterrows():
-            i, j, t = int(row['i']), int(row['j']), int(row['t'])
-            
-            # 计算从 t+1 到 t+4 的未来需求
-            future_demand_sum = 0.0
-            valid_periods = 0
-            
-            for k in range(1, future_periods + 1):
-                future_t = t + k
-                if future_t in all_times:
-                    future_dem = od[(od["t"] == future_t) & (od["i"] == i) & (od["j"] == j)]["demand"].sum()
-                    future_demand_sum += future_dem
-                    valid_periods += 1
-            
-            # 计算平均需求
-            if valid_periods > 0:
-                avg_future_demand = future_demand_sum / valid_periods
-                od_future_avg.append({
-                    'i': i,
-                    'j': j,
-                    't': t,
-                    'demand': avg_future_demand
-                })
-        
-        # 转换为DataFrame
-        od_future = pd.DataFrame(od_future_avg)
-        
-        if od_future.empty:
-            return pd.DataFrame(columns=['i', 'j', 't', 'reposition_demand'])
-        
-        # 计算每个区域在每个时刻的未来平均需求
-        zone_demand = od_future.groupby(['i', 't'])['demand'].sum().reset_index()
-        zone_demand.columns = ['zone', 't', 'future_avg_demand']
-        
-        # 计算每个区域在每个时刻的当期车辆库存
-        zone_inventory = current_inventory.groupby(['zone', 't'])['supply'].sum().reset_index()
-        zone_inventory.columns = ['zone', 't', 'current_inventory']
-        
-        # 合并需求和库存数据
-        zone_balance = zone_demand.merge(zone_inventory, on=['zone', 't'], how='outer')
-        zone_balance['future_avg_demand'] = zone_balance['future_avg_demand'].fillna(0.0)
-        zone_balance['current_inventory'] = zone_balance['current_inventory'].fillna(0.0)
-        
-        # 计算供需差额：当期库存 - 未来4期平均需求
-        zone_balance['demand_supply_gap'] = zone_balance['current_inventory'] - zone_balance['future_avg_demand']
-        
-        print(f"[reposition_arc] Zone balance analysis:")
-        print(f"[reposition_arc] - Zones with supply surplus: {(zone_balance['demand_supply_gap'] > 0).sum()}")
-        print(f"[reposition_arc] - Zones with demand surplus: {(zone_balance['demand_supply_gap'] < 0).sum()}")
-        print(f"[reposition_arc] - Max supply surplus: {zone_balance['demand_supply_gap'].max():.2f}")
-        print(f"[reposition_arc] - Max demand surplus: {abs(zone_balance['demand_supply_gap'].min()):.2f}")
-        
-        # 设置阈值 - 允许从有库存的区域重定位，即使供需平衡
-        gap_threshold = getattr(self.cfg.pruning, 'reposition_gap_threshold', 0.0)  # 允许供需平衡的区域也重定位
-        print(f"[reposition_arc] Using gap threshold: {gap_threshold}")
-        
-        # 生成重定位需求：从有库存的区域到需求过剩区域
-        for _, row in zone_balance.iterrows():
-            zone, t = int(row['zone']), int(row['t'])
-            gap = row['demand_supply_gap']
-            current_inventory = row['current_inventory']
-            
-            # 修改条件：有库存且供需差额大于等于阈值
-            if current_inventory > 0 and gap >= gap_threshold:
-                print(f"[reposition_arc] Found source zone {zone} at time {t} with inventory {current_inventory} and gap {gap}")
-                
-                # 找到需求过剩的区域作为目标（包括当前时间和未来时间）
-                demand_surplus = zone_balance[
-                    (zone_balance['t'] >= t) & 
-                    (zone_balance['demand_supply_gap'] < -gap_threshold)
-                ].copy()
-                
-                print(f"[reposition_arc] Found {len(demand_surplus)} demand surplus zones at time {t}")
-                
-                if not demand_surplus.empty:
-                    # 选择需求过剩最严重的几个目标区域
-                    top_targets = demand_surplus.nsmallest(3, 'demand_supply_gap')
-                    
-                    for _, target in top_targets.iterrows():
-                        target_zone = int(target['zone'])
-                        
-                        # 重定位要求 i != j（不能重定位到同一区域）
-                        if zone == target_zone:
-                            print(f"[reposition_arc] Skipping same zone {zone}")
-                            continue
-                        
-                        # 重定位需求 = 基于库存和需求过剩量的重定位
-                        reposition_ratio = getattr(self.cfg.pruning, 'reposition_demand_ratio', 0.3)
-                        
-                        # 如果供需平衡，使用库存的一部分进行重定位
-                        if gap >= 0:
-                            # 供需平衡或供给过剩，使用库存的一部分
-                            reposition_demand_val = current_inventory * reposition_ratio
-                        else:
-                            # 供给不足，使用供需差额和需求过剩量的较小值
-                            reposition_demand_val = min(abs(gap), abs(target['demand_supply_gap'])) * reposition_ratio
-                        
-                        print(f"[reposition_arc] Reposition from {zone} to {target_zone}: demand_val={reposition_demand_val:.2f}")
-                        
-                        if reposition_demand_val > 0:
-                            reposition_demand.append({
-                                'i': zone,
-                                'j': target_zone,
-                                't': t,
-                                'reposition_demand': reposition_demand_val
-                            })
+        # 基于需求模式生成重定位需求
+        reposition_demand = self._generate_reposition_from_patterns(zone_demand_pattern, od)
         
         if not reposition_demand:
             print("[reposition_arc] No reposition demand generated")
@@ -197,9 +85,135 @@ class RepositionArc(ArcBase):
         
         if not demand_df.empty:
             print("[reposition_arc] Final reposition demand:")
-            print(demand_df)
+            print(demand_df.head(10))
         
         return demand_df
+    
+    def _analyze_demand_patterns(self, od: pd.DataFrame) -> pd.DataFrame:
+        """
+        分析需求模式，识别重定位机会
+        
+        Args:
+            od: OD需求数据
+            
+        Returns:
+            包含需求模式分析的DataFrame
+        """
+        print("[reposition_arc] Analyzing demand patterns...")
+        
+        # 计算每个区域在每个时刻的总需求（作为出发区域）
+        zone_outbound_demand = od.groupby(['i', 't'])['demand'].sum().reset_index()
+        zone_outbound_demand.columns = ['zone', 't', 'outbound_demand']
+        
+        # 计算每个区域在每个时刻的总需求（作为到达区域）
+        zone_inbound_demand = od.groupby(['j', 't'])['demand'].sum().reset_index()
+        zone_inbound_demand.columns = ['zone', 't', 'inbound_demand']
+        
+        # 合并出站和入站需求
+        zone_demand = zone_outbound_demand.merge(zone_inbound_demand, on=['zone', 't'], how='outer')
+        zone_demand['outbound_demand'] = zone_demand['outbound_demand'].fillna(0.0)
+        zone_demand['inbound_demand'] = zone_demand['inbound_demand'].fillna(0.0)
+        
+        # 计算净需求（入站 - 出站）
+        zone_demand['net_demand'] = zone_demand['inbound_demand'] - zone_demand['outbound_demand']
+        
+        # 计算需求强度（总需求）
+        zone_demand['total_demand'] = zone_demand['inbound_demand'] + zone_demand['outbound_demand']
+        
+        print(f"[reposition_arc] Analyzed {len(zone_demand)} zone-time combinations")
+        print(f"[reposition_arc] Net demand range: {zone_demand['net_demand'].min():.2f} to {zone_demand['net_demand'].max():.2f}")
+        print(f"[reposition_arc] Total demand range: {zone_demand['total_demand'].min():.2f} to {zone_demand['total_demand'].max():.2f}")
+        
+        return zone_demand
+    
+    def _generate_reposition_from_patterns(self, zone_demand: pd.DataFrame, od: pd.DataFrame) -> List[Dict]:
+        """
+        基于需求模式生成重定位需求
+        
+        Args:
+            zone_demand: 需求模式分析结果
+            od: 原始OD数据
+            
+        Returns:
+            重定位需求列表
+        """
+        print("[reposition_arc] Generating reposition demand from patterns...")
+        
+        reposition_demand = []
+        
+        # 获取所有区域
+        all_zones = sorted(zone_demand['zone'].unique())
+        
+        # 重定位参数
+        reposition_ratio = self.cfg.pruning.reposition_demand_ratio
+        max_reposition_pairs = self.cfg.pruning.max_reposition_pairs_per_zone
+        high_demand_threshold = self.cfg.pruning.high_demand_threshold  # 高需求阈值（基于实际数据：20和110）
+        
+        for _, row in zone_demand.iterrows():
+            zone, t = int(row['zone']), int(row['t'])
+            net_demand = row['net_demand']
+            total_demand = row['total_demand']
+            
+            # 只考虑有足够需求的区域
+            if total_demand < 0.1:
+                continue
+            
+            # 策略1：从净需求为负的区域（供给过剩）到净需求为正的区域（需求过剩）
+            if net_demand < -0.1:  # 供给过剩区域
+                # 找到需求过剩的区域作为目标
+                demand_surplus_zones = zone_demand[
+                    (zone_demand['t'] == t) & 
+                    (zone_demand['net_demand'] > 0.1) &
+                    (zone_demand['zone'] != zone)
+                ].copy()
+                
+                if not demand_surplus_zones.empty:
+                    # 选择需求过剩最严重的几个目标区域
+                    top_targets = demand_surplus_zones.nlargest(max_reposition_pairs, 'net_demand')
+                    
+                    for _, target in top_targets.iterrows():
+                        target_zone = int(target['zone'])
+                        
+                        # 重定位需求基于供给过剩量和需求过剩量
+                        reposition_val = min(abs(net_demand), target['net_demand']) * reposition_ratio
+                        
+                        if reposition_val > 0.1:
+                            reposition_demand.append({
+                                'i': zone,
+                                'j': target_zone,
+                                't': t,
+                                'reposition_demand': reposition_val
+                            })
+            
+            # 策略2：为高需求区域生成重定位弧（即使供需平衡）
+            elif total_demand > high_demand_threshold:  # 高需求区域
+                # 找到其他高需求区域作为重定位目标
+                high_demand_zones = zone_demand[
+                    (zone_demand['t'] == t) & 
+                    (zone_demand['total_demand'] > high_demand_threshold) &
+                    (zone_demand['zone'] != zone)
+                ].copy()
+                
+                if not high_demand_zones.empty:
+                    # 选择总需求最高的几个目标区域
+                    top_targets = high_demand_zones.nlargest(max_reposition_pairs, 'total_demand')
+                    
+                    for _, target in top_targets.iterrows():
+                        target_zone = int(target['zone'])
+                        
+                        # 重定位需求基于总需求
+                        reposition_val = min(total_demand, target['total_demand']) * reposition_ratio * 0.5
+                        
+                        if reposition_val > 0.1:
+                            reposition_demand.append({
+                                'i': zone,
+                                'j': target_zone,
+                                't': t,
+                                'reposition_demand': reposition_val
+                            })
+        
+        print(f"[reposition_arc] Generated {len(reposition_demand)} reposition opportunities")
+        return reposition_demand
     
     def _load_current_inventory(self, t0: Optional[int] = None, t_hi: Optional[int] = None) -> pd.DataFrame:
         """
@@ -234,6 +248,10 @@ class RepositionArc(ArcBase):
                 # 时间过滤
                 if t0 is not None and t_hi is not None:
                     inventory_df = inventory_df[(inventory_df["t"] >= t0) & (inventory_df["t"] <= t_hi)]
+                
+                # 重命名列：count -> supply
+                if 'count' in inventory_df.columns:
+                    inventory_df = inventory_df.rename(columns={'count': 'supply'})
                 
                 return inventory_df
             
@@ -351,11 +369,12 @@ class RepositionArc(ArcBase):
         gamma_rep = cp.gamma_rep_p_sum_over_window(arc.t, arc.tau)
         coef_rep = vot * gamma_rep
         
-        # 重定位奖励（负成本）
+        # 重定位奖励（负成本）- 基于净需求
         coef_rep_reward = 0.0
         if hasattr(self.cfg, 'flags') and getattr(self.cfg.flags, 'enable_reposition_reward', True):
-            from config.costs import build_zone_value_table
-            zone_val = build_zone_value_table()
+            # 使用统一的净需求计算方法
+            from config.costs import build_net_demand_based_reposition_rewards
+            zone_val = build_net_demand_based_reposition_rewards()
             
             # 查找目标区域的zone_value
             target_value = zone_val[

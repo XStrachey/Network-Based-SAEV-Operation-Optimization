@@ -141,7 +141,12 @@ HTML_TMPL = Template(r"""<!DOCTYPE html>
       physics: false,
       interaction: { hover: true, zoomView: true, dragView: true },
       nodes: { shape: 'dot', font: { size: 1 } },
-      edges: { smooth: false, arrows: 'to' }
+      edges: { 
+        smooth: false, 
+        arrows: 'to',
+        font: { size: 12, color: '#333' },
+        labelHighlightBold: false
+      }
     };
     const network = new vis.Network(document.getElementById('network'), { nodes, edges }, options);
 
@@ -449,12 +454,34 @@ def main():
     id_to_t = {n["id"]: float(n["t"]) for n in actual_nodes}
     neighbors = collections.defaultdict(set)
     edges_by_node = collections.defaultdict(list)
+    # 为虚节点收集SOC信息
+    virtual_soc_info = collections.defaultdict(dict)
+    
     for e in raw_edges:
         u, v = get_uv(e)
         if not u or not v:
             continue
         neighbors[u].add(v); neighbors[v].add(u)
         edges_by_node[u].append(e); edges_by_node[v].append(e)
+        
+        # 收集虚节点的SOC信息
+        try:
+            u_num = float(u)
+            v_num = float(v)
+            # 虚节点ID通常是负数
+            if u_num < 0:
+                if 'l' in e:  # 起始SOC
+                    virtual_soc_info[u]['soc_from'] = e.get('l')
+                if 'l_to' in e:  # 目标SOC
+                    virtual_soc_info[u]['soc_to'] = e.get('l_to')
+            if v_num < 0:
+                if 'l' in e:  # 起始SOC
+                    virtual_soc_info[v]['soc_from'] = e.get('l')
+                if 'l_to' in e:  # 目标SOC
+                    virtual_soc_info[v]['soc_to'] = e.get('l_to')
+        except (ValueError, TypeError):
+            # 如果无法转换为数字，跳过
+            pass
 
     def snap_to_nearest_t(ts):
         target = sum(ts) / len(ts)
@@ -517,7 +544,14 @@ def main():
             lines = [f"Node: {nd['id']}",
                      f"t: {'virtual' if is_virtual and not is_num(nd.get('t')) else fmt_num(nd.get('t'))}",
                      f"zone: {zone}"]
-            if is_virtual: lines.append(f"virtual category: {vcat}")
+            if is_virtual: 
+                lines.append(f"virtual category: {vcat}")
+                # 添加虚节点的SOC信息
+                soc_info = virtual_soc_info.get(nd['id'], {})
+                if 'soc_from' in soc_info:
+                    lines.append(f"soc from: {fmt_num(soc_info['soc_from'])}")
+                if 'soc_to' in soc_info:
+                    lines.append(f"soc to: {fmt_num(soc_info['soc_to'])}")
             if "soc" in nd: lines.append(f"soc: {fmt_num(nd['soc'])}")
             if "supply" in nd: lines.append(f"supply: {fmt_num(nd['supply'])}")
             title = "\n".join(lines)
@@ -556,12 +590,38 @@ def main():
         lines = [f"Edge: {u} → {v}", f"type: {et}"]
         if "flow" in e: lines.append(f"flow: {fmt_num(flow_raw)}")
         if "cost" in e: lines.append(f"cost: {fmt_num(e['cost'])}")
+        if "capacity" in e: 
+            cap_val = e["capacity"]
+            if cap_val >= 1e12:
+                lines.append("capacity: ∞")
+            else:
+                lines.append(f"capacity: {fmt_num(cap_val)}")
+        
+        # 为充电相关边添加SOC信息
+        if et in ["tochg", "chg_enter", "chg_occ", "chg_step"]:
+            if "l" in e:
+                lines.append(f"SOC from: {fmt_num(e['l'])}")
+            if "l_to" in e:
+                lines.append(f"SOC to: {fmt_num(e['l_to'])}")
+            # 特别标注chg_occ的容量约束问题
+            if et == "chg_occ":
+                lines.append("⚠️ Capacity shared across SOC levels")
+        # 生成边标签（显示容量信息）
+        label = ""
+        if "capacity" in e:
+            cap_val = e["capacity"]
+            if cap_val >= 1e12:
+                label = "∞"
+            else:
+                label = f"{fmt_num(cap_val)}"
+        
         vis_edges_all.append({
             "from": u, "to": v, "arrows": "to",
             "width": width, "smooth": False,
             "title": "\n".join(lines),
             "edge_type": et, "flow": flow,
-            "dashes": True if (u in virtual_id_set or v in virtual_id_set) else False
+            "dashes": True if (u in virtual_id_set or v in virtual_id_set) else False,
+            "label": label
         })
 
     etypes_sorted = sorted(set(etypes))

@@ -114,11 +114,29 @@ def create_graph_summary(nodes: List[Dict], edges: List[Dict], solve_summary: Op
             edge_types[edge_type] = {
                 "count": 0,
                 "total_flow": 0.0,
-                "total_cost": 0.0
+                "total_cost": 0.0,
+                "capacities": [],
+                "max_capacity": 0.0,
+                "min_capacity": float('inf')
             }
         edge_types[edge_type]["count"] += 1
         edge_types[edge_type]["total_flow"] += edge["flow"]
         edge_types[edge_type]["total_cost"] += edge["cost"] * edge["flow"]
+        
+        # 统计容量信息
+        if "capacity" in edge:
+            capacity = edge["capacity"]
+            edge_types[edge_type]["capacities"].append(capacity)
+            edge_types[edge_type]["max_capacity"] = max(edge_types[edge_type]["max_capacity"], capacity)
+            edge_types[edge_type]["min_capacity"] = min(edge_types[edge_type]["min_capacity"], capacity)
+    
+    # 清理容量统计
+    for edge_type in edge_types:
+        if edge_types[edge_type]["min_capacity"] == float('inf'):
+            edge_types[edge_type]["min_capacity"] = 0.0
+        # 去重容量值
+        edge_types[edge_type]["unique_capacities"] = list(set(edge_types[edge_type]["capacities"]))
+        del edge_types[edge_type]["capacities"]  # 删除原始列表以节省空间
     
     # 计算总流量和总成本
     total_flow = sum(edge["flow"] for edge in edges)
@@ -227,7 +245,19 @@ def main():
             print(f"  求解状态: {summary.get('solve_status', 'unknown')}")
             print(f"  边类型统计:")
             for edge_type, stats in summary['edge_types'].items():
-                print(f"    {edge_type}: {stats['count']} 条边, 流量 {stats['total_flow']:.2f}")
+                capacity_info = ""
+                if 'unique_capacities' in stats and len(stats['unique_capacities']) > 0:
+                    capacities = stats['unique_capacities']
+                    if len(capacities) == 1:
+                        cap_val = capacities[0]
+                        if cap_val >= 1e12:
+                            capacity_info = " (无限容量)"
+                        else:
+                            capacity_info = f" (容量: {cap_val})"
+                    else:
+                        capacity_info = f" (容量: {stats['min_capacity']}-{stats['max_capacity']})"
+                
+                print(f"    {edge_type}: {stats['count']} 条边, 流量 {stats['total_flow']:.2f}{capacity_info}")
     
     except Exception as e:
         print(f"错误: {e}")

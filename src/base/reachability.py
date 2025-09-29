@@ -143,7 +143,7 @@ def build_reachability_table(cfg, gi: GridIndexers, best: pd.DataFrame, nearest_
             for l in gi.socs:
                 l_int = int(l)
                 cnt = int(np.sum(de_arr[finite_mask] <= l_int)) if n_finite>0 else 0
-                reachable_all = int( (n_finite == n_expected) and (req_de_all is not None) and (l_int >= req_de_all) )
+                reachable_all = int( (n_finite == n_expected) and (req_de_all is not None) and (l_int >= req_de_all + 10) ) # 需要一点冗余，否则会出现0%的节点
                 rows.append((
                     int(t), int(j), l_int,
                     reachable_all,                # reachable（新语义：能到所有最近站）

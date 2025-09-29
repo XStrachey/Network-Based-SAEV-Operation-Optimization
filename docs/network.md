@@ -299,7 +299,7 @@ $$c^{\text{occ}}_a = \mathrm{VOT} \cdot \beta_{\text{chg\_p2}}(p)$$
 $$c^{\text{svc-gate}}_a = -\mathrm{VOT} \cdot w_{ijt}$$
 
 **实现细节**：
-- $w_{ijt}$：服务权重，默认来自 `cfg.costs_equity.unmet_weight_default`
+- $w_{ijt}$：服务权重，默认来自 `cfg.costs_equity.service_weight_default`
 - 可被 `cfg.unmet_weights_overrides[t][(i,j)]` 覆盖
 - 受 `cfg.flags.enable_service_reward` 控制
 
@@ -373,7 +373,7 @@ $$
 c^{\text{svc-gate}}_a \;=\; -\,\mathrm{VOT}\cdot w_{ijt},
 $$
 
-默认 $w_{ijt}=$ `cfg.costs_equity.unmet_weight_default`（默认1.0），可被 `cfg.unmet_weights_overrides[t][(i,j)]` 覆盖。受 `cfg.flags.enable_service_reward` 控制。
+默认 $w_{ijt}=$ `cfg.costs_equity.service_weight_default`（默认15.7），可被 `cfg.unmet_weights_overrides[t][(i,j)]` 覆盖。受 `cfg.flags.enable_service_reward` 控制。
 
 > 作用等价于传统“未满足惩罚”的对偶形式：闸门容量 $D_{ijt}$ 决定最多可服务量，负成本鼓励通过闸门以满足需求。
 
@@ -636,7 +636,7 @@ $$
    $$
 
    * 容量正好等于当期需求 $D_{ijt}$；
-   * 费用在 06 里赋成**负成本奖励**：$-\mathrm{VOT}\cdot w_{ijt}$（默认 `unmet_weight_default`，可被 overrides 覆盖）。
+   * 费用在 06 里赋成**负成本奖励**：$-\mathrm{VOT}\cdot w_{ijt}$（默认 `service_weight_default`，可被 overrides 覆盖）。
 
 3. **退出弧** `svc_exit`（推进时间与扣减 SOC）
 

@@ -217,8 +217,8 @@ class ArcAssembly:
                 
                 # 重定位奖励（如果有）
                 if hasattr(self.cfg, 'flags') and getattr(self.cfg.flags, 'enable_reposition_reward', True):
-                    from config.costs import build_zone_value_table
-                    zone_val = build_zone_value_table()
+                    from config.costs import build_net_demand_based_reposition_rewards
+                    zone_val = build_net_demand_based_reposition_rewards()
                     
                     def compute_rep_reward(row):
                         target_value = zone_val[
@@ -261,7 +261,7 @@ class ArcAssembly:
                 # 服务奖励（负成本）
                 gate_mask = df["arc_type"] == "svc_gate"
                 if gate_mask.any():
-                    base_weight = float(self.cfg.costs_equity.unmet_weight_default)
+                    base_weight = float(self.cfg.costs_equity.service_weight_default)
                     vot = float(self.cfg.costs_equity.vot)
                     df.loc[gate_mask, "coef_svc_gate"] = -vot * base_weight
                     

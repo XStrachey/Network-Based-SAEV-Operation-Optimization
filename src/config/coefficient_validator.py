@@ -30,7 +30,7 @@ class CoefficientConstraints:
     beta_chg_reward: float  # 充电奖励系数（对应 beta_chg_a）
     
     # 服务相关系数
-    unmet_weight_default: float  # 未满足需求惩罚权重（对应 alpha_unmet）
+    service_weight_default: float  # 服务奖励权重（对应 alpha_service）
     idle_opportunity_cost: float  # idle弧机会成本
     
     # 统计量（从实际数据计算）
@@ -71,7 +71,7 @@ class CoefficientValidator:
     def _calculate_net_coefficients(self) -> Dict[str, float]:
         """计算净系数"""
         return {
-            'P': self.constraints.vot * self.constraints.unmet_weight_default,
+            'P': self.constraints.vot * self.constraints.service_weight_default,
             'beta_2_minus_alpha_chg': self.constraints.beta_chg - self.constraints.beta_chg_reward,
             'gamma_rep_scaled': self.constraints.gamma_rep * self.constraints.tt_rep_p50
         }
@@ -164,7 +164,7 @@ class CoefficientValidator:
     
     def _check_serve_vs_charge(self) -> bool:
         """检查约束A3: 去站充电不应比直接服务更划算"""
-        P = self.constraints.vot * self.constraints.unmet_weight_default
+        P = self.constraints.vot * self.constraints.service_weight_default
         
         # 计算最小充电时间步数
         min_charging_steps = self._calculate_charging_time_steps(
@@ -190,16 +190,16 @@ class CoefficientValidator:
             )
             # 建议调整
             required_P = min_charge_cost + self.constraints.epsilon
-            self.adjustments['unmet_weight_default'] = required_P / self.constraints.vot
+            self.adjustments['service_weight_default'] = required_P / self.constraints.vot
             self.recommendations.append(
-                f"建议调整 unmet_weight_default = {self.adjustments['unmet_weight_default']:.4f}"
+                f"建议调整 service_weight_default = {self.adjustments['service_weight_default']:.4f}"
             )
             return False
         return True
     
     def _check_serve_vs_reposition(self) -> bool:
         """检查约束A4: 去重定位不应比直接服务更划算"""
-        P = self.constraints.vot * self.constraints.unmet_weight_default
+        P = self.constraints.vot * self.constraints.service_weight_default
         # 计算重定位时间步数
         reposition_steps = self._minutes_to_steps(self.constraints.tt_rep_min)
         
@@ -212,16 +212,16 @@ class CoefficientValidator:
             )
             # 建议调整
             required_P = max_reposition_benefit + self.constraints.epsilon
-            self.adjustments['unmet_weight_default'] = required_P / self.constraints.vot
+            self.adjustments['service_weight_default'] = required_P / self.constraints.vot
             self.recommendations.append(
-                f"建议调整 unmet_weight_default = {self.adjustments['unmet_weight_default']:.4f}"
+                f"建议调整 service_weight_default = {self.adjustments['service_weight_default']:.4f}"
             )
             return False
         return True
     
     def _check_lexicographic_order(self) -> bool:
         """检查约束B1: 词典序层级"""
-        P = self.constraints.vot * self.constraints.unmet_weight_default
+        P = self.constraints.vot * self.constraints.service_weight_default
         
         # 计算重定位时间步数
         reposition_steps_p90 = self._minutes_to_steps(self.constraints.tt_rep_p90)
@@ -251,9 +251,9 @@ class CoefficientValidator:
             self.warnings.extend(violations)
             # 建议调整
             required_P = max(max_rep_cost, max_chg_cost) + self.constraints.eta + self.constraints.epsilon
-            self.adjustments['unmet_weight_default'] = required_P / self.constraints.vot
+            self.adjustments['service_weight_default'] = required_P / self.constraints.vot
             self.recommendations.append(
-                f"建议调整 unmet_weight_default = {self.adjustments['unmet_weight_default']:.4f} 以确保词典序"
+                f"建议调整 service_weight_default = {self.adjustments['service_weight_default']:.4f} 以确保词典序"
             )
             return False
         return True
@@ -294,7 +294,7 @@ class CoefficientValidator:
     
     def _check_idle_opportunity_cost(self) -> bool:
         """检查约束C1: idle弧机会成本合理性"""
-        P = self.constraints.vot * self.constraints.unmet_weight_default
+        P = self.constraints.vot * self.constraints.service_weight_default
         
         # idle机会成本不应超过服务奖励
         if self.constraints.idle_opportunity_cost > P:
@@ -402,7 +402,7 @@ class CoefficientValidator:
             vot=constraints.vot,
             gamma_reposition_reward=self.adjustments.get('gamma_reposition_reward', constraints.gamma_reposition_reward),
             beta_chg_reward=self.adjustments.get('beta_chg_reward', constraints.beta_chg_reward),
-            unmet_weight_default=self.adjustments.get('unmet_weight_default', constraints.unmet_weight_default),
+            service_weight_default=self.adjustments.get('service_weight_default', constraints.service_weight_default),
             idle_opportunity_cost=constraints.idle_opportunity_cost,
             tt_rep_min=constraints.tt_rep_min,
             tt_rep_p50=constraints.tt_rep_p50,
@@ -431,7 +431,7 @@ def load_constraints_from_network_config() -> CoefficientConstraints:
             vot=cfg.costs_equity.vot,
             gamma_reposition_reward=cfg.costs_equity.gamma_reposition_reward,
             beta_chg_reward=cfg.costs_equity.beta_chg_reward,
-            unmet_weight_default=cfg.costs_equity.unmet_weight_default,
+            service_weight_default=cfg.costs_equity.service_weight_default,
             idle_opportunity_cost=cfg.costs_equity.idle_opportunity_cost,
             dt_minutes=cfg.time_soc.dt_minutes,
             tt_rep_min=1.0,  # 将从数据计算
@@ -462,7 +462,7 @@ def load_constraints_from_config(config_path: str) -> CoefficientConstraints:
         vot=coefficients.get('vot', 1.0),
         gamma_reposition_reward=coefficients.get('gamma_reposition_reward', 0.5),
         beta_chg_reward=coefficients.get('beta_chg_reward', 0.5),
-        unmet_weight_default=coefficients.get('unmet_weight_default', 10.0),
+        service_weight_default=coefficients.get('service_weight_default', 10.0),
         idle_opportunity_cost=coefficients.get('idle_opportunity_cost', 10.0),
         tt_rep_min=coefficients.get('tt_rep_min', 1.0),
         tt_rep_p50=coefficients.get('tt_rep_p50', 5.0),
@@ -542,7 +542,7 @@ def generate_report(result: ValidationResult, output_path: str, constraints: Coe
             'vot': constraints.vot if constraints else None,
             'gamma_reposition_reward': constraints.gamma_reposition_reward if constraints else None,
             'beta_chg_reward': constraints.beta_chg_reward if constraints else None,
-            'unmet_weight_default': constraints.unmet_weight_default if constraints else None,
+            'service_weight_default': constraints.service_weight_default if constraints else None,
             'idle_opportunity_cost': constraints.idle_opportunity_cost if constraints else None,
         } if constraints else None,
         'violations': result.violations,
@@ -698,7 +698,7 @@ def main():
                         'vot': adjusted_constraints.vot,
                         'gamma_reposition_reward': adjusted_constraints.gamma_reposition_reward,
                         'beta_chg_reward': adjusted_constraints.beta_chg_reward,
-                        'unmet_weight_default': adjusted_constraints.unmet_weight_default,
+                        'service_weight_default': adjusted_constraints.service_weight_default,
                         'idle_opportunity_cost': adjusted_constraints.idle_opportunity_cost,
                         'epsilon': adjusted_constraints.epsilon,
                         'eta': adjusted_constraints.eta

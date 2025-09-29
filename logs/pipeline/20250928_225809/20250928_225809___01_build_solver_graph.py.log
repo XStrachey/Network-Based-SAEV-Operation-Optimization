@@ -1,0 +1,8 @@
+$ python3 _01_build_solver_graph.py
+# cwd=/Users/xiezhewei/Documents/UT/RA/Urban Info Lab/Research/code/Network-Based-SAEV-Operation-Optimization timeout=none attempt=1/1
+
+
+[stderr]
+/opt/homebrew/Cellar/python@3.13/3.13.7/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python: can't open file '/Users/xiezhewei/Documents/UT/RA/Urban Info Lab/Research/code/Network-Based-SAEV-Operation-Optimization/_01_build_solver_graph.py': [Errno 2] No such file or directory
+
+# returncode=2 duration=0.04s

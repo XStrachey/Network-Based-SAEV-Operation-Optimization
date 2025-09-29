@@ -25,8 +25,8 @@ class Paths:
 class TimeSOC:
     dt_minutes: int = 15
     start_step: int = 1
-    end_step: int = 4
-    window_length: int = 4           # 窗口长度 H
+    end_step: int = 8
+    window_length: int = 8           # 窗口长度 H
     overhang_steps: int = 2          # Halo：窗外可见/可到达的"缓冲步数"（建议 2~6）
     roll_step: int = 1
     soc_levels: List[int] = None
@@ -34,7 +34,7 @@ class TimeSOC:
     def __post_init__(self):
         if self.soc_levels is None:
             # 0, 5, 10, ..., 100
-            self.soc_levels = list(range(0, 101, 5))
+            self.soc_levels = list(range(0, 101, 10))
 
 # -------------------------
 # 充电/队列
@@ -57,8 +57,8 @@ class CostsAndEquity:
     beta_toCHG: float = 1.0              # 去站时间系数 β_chg_p1
     beta_chg: float = 1.0                # 充电占用系数 β_chg_p2
 
-    # —— 服务奖励 / 未满足惩罚 —— 
-    unmet_weight_default: float = 15.7    # 06 的 svc_gate 奖励可等价为 -VOT*unmet_weight_default
+    # —— 服务奖励权重 —— 
+    service_weight_default: float = 15.7    # svc_gate 服务奖励权重，计算公式：-VOT*service_weight_default
 
     # —— 新目标函数：收益项系数（请保持非负）——
     gamma_reposition_reward: float = 0.2  # 重定位收益系数 γ_rep（施加在 reposition 弧，按目的地 j 与 t）
@@ -92,6 +92,8 @@ class PruningRules:
     charge_nearest_station_n: int = 16
     
     # —— 需求驱动的重定位弧生成参数 ——
+    max_reposition_pairs_per_zone: int = 3
+    high_demand_threshold: int = 25
     reposition_demand_ratio: float = 0.3          # 重定位需求相对于服务需求的比例
     min_reposition_demand: float = 0.1            # 最小重定位需求阈值
     reposition_imbalance_threshold: float = 1.0   # 供需不平衡阈值
@@ -124,9 +126,9 @@ class ArcTypeControl:
     """弧类型生成控制配置"""
     # 弧类型开关
     enable_idle: bool = True         # 启用idle弧生成
-    enable_service: bool = True      # 启用service弧生成
-    enable_reposition: bool = False   # 启用reposition弧生成
-    enable_charging: bool = True     # 启用charging弧生成
+    enable_service: bool = False      # 启用service弧生成
+    enable_reposition: bool = True   # 启用reposition弧生成
+    enable_charging: bool = False     # 启用charging弧生成
     
     # 弧类型优先级（用于调试时按顺序生成）
     generation_order: List[str] = None
@@ -169,7 +171,7 @@ class BasicConfig:
 class FleetConfig:
     """车队配置"""
     total_fleet_size: int = 200              # 总车队规模
-    initial_soc_level: int = 100             # 初始SOC水平（百分比）
+    initial_soc_level: int = 60             # 初始SOC水平（百分比）
     # 注意：fleet_init.csv 中的 count 列将被忽略，仅使用 zone, soc 列来确定初始节点位置
 
 # R1PruneConfig 已移除 - 不再需要生成后裁剪，改为需求驱动的生成端控制

@@ -123,105 +123,72 @@ def _pick_arc_path(basename: str) -> Path:
 
 
 # ============================================================
-# 辅助：zone_value(t,j) 近似（单期思想的静态化）
-# * `per_t_sum`：对每个时段 `t`，把该时段所有 `j` 的 `zone_value_raw` 按总和归一化；优点是每个时段的“势能”总量=1，跨时段可比。
-# * `per_t_max`：对每个时段 `t`，按**最大值**归一化；强调“最缺”的区。
-# * `global_max`/`window_sum`：全窗统一量纲（有跨窗比较需求可用）。
-# * `none`：不归一化（保持旧行为）。
+# 基于净需求的重定位奖励计算
 # ============================================================
-def build_zone_value_table(normalize: Optional[str] = None, clip01: bool = True) -> pd.DataFrame:
+def build_net_demand_based_reposition_rewards() -> pd.DataFrame:
     """
-    返回 DataFrame: [t, j, zone_value, zone_value_raw]
-    定义原始值（未归一化）：
-        zone_value_raw(t,j) = avg_{t+1}^{t+4} [sum_i demand[t+k, i=j 的对外需求]] - inv0(j)
-    采用未来4期的平均需求来做前瞻性估算，再按 normalize 模式做 0~1 归一化，输出列 zone_value。
+    基于净需求计算重定位奖励
+    
+    Returns:
+        DataFrame: [t, j, zone_value, zone_value_raw]
+        zone_value: 归一化的净需求强度 (0-1)
+        zone_value_raw: 原始净需求值
     """
     cfg = get_config()
-
-    # 读取 OD，聚到 (t, j) 的"对外需求"
+    
+    # 读取 OD 需求数据
     from utils.data_loader import load_od_matrix
     od = load_od_matrix(cfg)
     
-    # 计算未来4期的平均需求
-    future_periods = 4
-    out_dem_future = []
+    # 计算每个区域在每个时刻的净需求
+    zone_demand_data = []
     
     # 获取所有时间步和区域
     all_times = sorted(od['t'].unique())
     all_zones = sorted(od['i'].unique())
     
     for t in all_times:
-        for j in all_zones:
-            # 计算区域 j 从 t+1 到 t+4 的未来对外需求
-            future_demand_sum = 0.0
-            valid_periods = 0
+        # 计算该时刻所有区域的净需求
+        net_demands = []
+        zone_net_data = {}
+        
+        for zone in all_zones:
+            # 计算入站需求（作为到达区域）
+            inbound_demand = od[(od["t"] == t) & (od["j"] == zone)]["demand"].sum()
             
-            for k in range(1, future_periods + 1):
-                future_t = t + k
-                if future_t in all_times:
-                    # 计算未来时刻 t+k 区域 j 的对外需求（从 j 出发到其他区域的需求）
-                    future_dem = od[(od["t"] == future_t) & (od["i"] == j)]["demand"].sum()
-                    future_demand_sum += future_dem
-                    valid_periods += 1
+            # 计算出站需求（作为出发区域）
+            outbound_demand = od[(od["t"] == t) & (od["i"] == zone)]["demand"].sum()
             
-            # 计算平均需求
-            if valid_periods > 0:
-                avg_future_demand = future_demand_sum / valid_periods
-                out_dem_future.append({
+            # 计算净需求
+            net_demand = inbound_demand - outbound_demand
+            
+            zone_net_data[zone] = net_demand
+            net_demands.append(net_demand)
+        
+        # 归一化净需求强度
+        if net_demands:
+            max_net_demand = max(net_demands)
+            min_net_demand = min(net_demands)
+            net_range = max_net_demand - min_net_demand
+            
+            for zone in all_zones:
+                net_demand = zone_net_data[zone]
+                
+                if net_range > 0:
+                    # 将净需求映射到0-1范围
+                    zone_value = max(0.0, min(1.0, (net_demand - min_net_demand) / net_range))
+                else:
+                    # 所有区域净需求相同，设为0.5
+                    zone_value = 0.5
+                
+                zone_demand_data.append({
                     "t": t,
-                    "j": j,
-                    "out_demand": avg_future_demand
+                    "j": zone,
+                    "zone_value": zone_value,
+                    "zone_value_raw": net_demand
                 })
     
-    out_dem = pd.DataFrame(out_dem_future)
-
-    # 期初库存 inv0(j)（t0）
-    inv0 = pd.DataFrame({"j": [], "inv0": []})
-    try:
-        V0 = pd.read_parquet("data/intermediate/initial_inventory.parquet",
-                             columns=["t", "zone", "count"])
-        t0 = int(cfg.time_soc.start_step)
-        inv0 = V0.loc[V0["t"].astype(int).eq(t0)] \
-                 .groupby("zone", as_index=False)["count"].sum() \
-                 .rename(columns={"zone": "j", "count": "inv0"})
-    except Exception:
-        pass
-
-    # 原始势能（未归一化）
-    z = out_dem.merge(inv0, on="j", how="left")
-    z["inv0"] = z["inv0"].fillna(0.0)
-    z["zone_value_raw"] = (z["out_demand"] - z["inv0"]).clip(lower=0.0)
-
-    # 选择归一化模式
-    mode = (normalize or getattr(cfg.costs_equity, "zone_value_normalize", "per_t_sum")).lower()
-    eps = float(getattr(cfg.costs_equity, "zone_value_eps", 1e-9))
-
-    if mode == "none":
-        z["zone_value"] = z["zone_value_raw"]
-
-    elif mode == "per_t_sum":
-        denom = z.groupby("t")["zone_value_raw"].transform("sum").clip(lower=eps)
-        z["zone_value"] = (z["zone_value_raw"] / denom).fillna(0.0)
-
-    elif mode == "per_t_max":
-        denom = z.groupby("t")["zone_value_raw"].transform("max").clip(lower=eps)
-        z["zone_value"] = (z["zone_value_raw"] / denom).fillna(0.0)
-
-    elif mode == "global_max":
-        denom = max(float(z["zone_value_raw"].max() or 0.0), eps)
-        z["zone_value"] = z["zone_value_raw"] / denom
-
-    elif mode == "window_sum":
-        denom = max(float(z["zone_value_raw"].sum() or 0.0), eps)
-        z["zone_value"] = z["zone_value_raw"] / denom
-
-    else:
-        raise ValueError(f"Unknown normalize mode: {mode}")
-
-    if clip01:
-        z["zone_value"] = z["zone_value"].clip(lower=0.0, upper=1.0)
-
-    return z.loc[:, ["t", "j", "zone_value", "zone_value_raw"]]
+    return pd.DataFrame(zone_demand_data)
 
 
 # ============================================================
@@ -393,8 +360,8 @@ def build_service_reward_coefficients(save: bool = True) -> pd.DataFrame:
     from utils.data_loader import load_od_matrix
     od = load_od_matrix(cfg)
 
-    # 若希望与单期一致，可把 unmet_weight_default
-    base = float(cfg.costs_equity.unmet_weight_default)
+    # 若希望与单期一致，可把 service_weight_default
+    base = float(cfg.costs_equity.service_weight_default)
     vot = float(cfg.costs_equity.vot)
 
     od = od.copy()
@@ -432,7 +399,7 @@ def build_unmet_penalty_coefficients(save: bool = True) -> pd.DataFrame:
     from utils.data_loader import load_od_matrix
     od = load_od_matrix(cfg)
 
-    base = float(cfg.costs_equity.unmet_weight_default)
+    base = float(cfg.costs_equity.service_weight_default)
     vot = float(cfg.costs_equity.vot)
 
     od = od.copy()
@@ -563,7 +530,7 @@ def build_cost_coefficients_for_window(arc_df_win: pd.DataFrame) -> Dict[str, pd
     rep_reward_coef = pd.DataFrame(columns=["arc_id","t","coef_rep_reward"])
     if _get_flag("enable_reposition_reward", True):
         if not rep_arcs.empty and "j" in rep_arcs.columns:
-            zone_val = build_zone_value_table()  # [t, j, zone_value]
+            zone_val = build_net_demand_based_reposition_rewards()  # [t, j, zone_value]
             gamma_rep_a = float(cfg.costs_equity.gamma_reposition_reward)
             tmp = rep_arcs[["arc_id","t","j"]].copy()
             tmp["t"] = tmp["t"].astype(int)

@@ -121,29 +121,15 @@ class ChargingArc(ArcBase):
                     if not self._check_reachability(i, int(l), t, reachable_set):
                         continue
                     
-                    # 修正：考虑去站耗电，支持多轮充电以充分补偿耗电
+                    # 添加SOC限制：电量高于60的节点不允许生成充电弧
+                    if l > 60:
+                        continue
+                    
+                    # 简化模型：充电目标电量统一设置为100%
                     soc_after_travel = int(l) - int(de_to)  # 到站后的SOC
-                    if soc_after_travel <= 0:
-                        continue
                     
-                    # 计算需要多少轮充电来充分补偿去站耗电
-                    # 策略：至少充到原始SOC，然后可以继续充电
-                    min_target_soc = int(l)  # 至少恢复到去站前的SOC
-                    max_chargeable = 100 - soc_after_travel
-                    
-                    if max_chargeable <= 0:
-                        continue
-                    
-                    # 计算需要的充电轮数
-                    needed_charge = min_target_soc - soc_after_travel
-                    if needed_charge <= 0:
-                        # 如果到站后SOC还够，可以选择充电或不充电
-                        target_soc = soc_after_travel + min_step  # 至少充一轮
-                    else:
-                        # 需要多轮充电来补偿耗电
-                        charge_rounds = math.ceil(needed_charge / min_step)  # 向上取整到整数轮
-                        target_charge = min(charge_rounds * min_step, max_chargeable)
-                        target_soc = soc_after_travel + int(target_charge)
+                    # 目标SOC统一设置为100%
+                    target_soc = 100
                     
                     # 查询充电时间（分钟 -> 步）——从到站 SOC 充到 target_soc
                     tau_chg_min = prof_map.get(level_k, {}).get((int(soc_after_travel), int(target_soc)), None)
@@ -152,6 +138,7 @@ class ChargingArc(ArcBase):
                         continue
                     tau_chg = int(math.ceil(tau_chg_min / self.dt_minutes))
                     if tau_chg <= 0:
+                        print(f"tau_chg <= 0: {tau_chg}")
                         continue
                     
                     t_end = t_arr + tau_chg
@@ -188,32 +175,17 @@ class ChargingArc(ArcBase):
                         q_in = self._pseudo_node_id("q_in", k, p)
                         q_out = self._pseudo_node_id("q_out", k, p)
                         
-                        # 2.1 chg_enter： 从专门的充电站到达节点进入充电站队列
-                        # 这确保车辆必须通过tochg弧才能进入充电站
+                        # 检查当前时间片的可达性
                         if not self._check_reachability(zone_k, soc_now, p, reachable_set):
                             break
+                        
+                        # 2.1 chg_enter： 从专门的充电站到达节点进入充电站队列
+                        # 这确保车辆必须通过tochg弧才能进入充电站
                         # 只有在第一步(p = t_arr)时从充电站到达节点进入
-                        if step == 0 and p == t_arr:
+                        if step == 0:  # 只在第一步生成进入弧
                             enter_arc = ArcMetadata(
                                 arc_type="chg_enter",
                                 from_node_id=chg_arrival_node,
-                                to_node_id=q_in,
-                                i=i,
-                                k=k,
-                                t=p,
-                                l=soc_now,
-                                l_to=soc_now,
-                                tau=0,
-                                de=0,
-                                level=level_k
-                            )
-                            arcs.append(enter_arc)
-                        else:
-                            # 后续步骤从网格节点进入（充电过程中的等待）
-                            from_id = self.gi.id_of(zone_k, p, soc_now)
-                            enter_arc = ArcMetadata(
-                                arc_type="chg_enter",
-                                from_node_id=from_id,
                                 to_node_id=q_in,
                                 i=i,
                                 k=k,
@@ -244,12 +216,18 @@ class ChargingArc(ArcBase):
                         )
                         arcs.append(occ_arc)
                         
-                        # 2.3 chg_step： q_out[k,p] -> (zone_k, p+1, soc_next)
+                        # 2.3 chg_step： q_out[k,p] -> q_in[k,p+1] 或 -> (zone_k, p+1, soc_next)
                         is_last = (step == tau_chg - 1)
                         soc_next = int(target_soc) if is_last else int(soc_now)
-                        if not self._check_reachability(zone_k, soc_next, p+1, reachable_set):
-                            break
-                        to_id = self.gi.id_of(zone_k, p+1, soc_next)
+                        
+                        if is_last:
+                            # 最后一步：从充电站队列回到网格节点
+                            if not self._check_reachability(zone_k, soc_next, p+1, reachable_set):
+                                break
+                            to_id = self.gi.id_of(zone_k, p+1, soc_next)
+                        else:
+                            # 中间步骤：连接到下一个时间片的充电站队列
+                            to_id = self._pseudo_node_id("q_in", k, p+1)
                         
                         step_arc = ArcMetadata(
                             arc_type="chg_step",
@@ -266,7 +244,8 @@ class ChargingArc(ArcBase):
                             is_last_step=is_last
                         )
                         arcs.append(step_arc)
-                        # 更新
+                        
+                        # 更新到下一个时间片
                         soc_now = soc_next
                         p += 1
                     

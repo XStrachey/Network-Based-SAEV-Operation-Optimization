@@ -152,7 +152,7 @@ class ServiceArc(ArcBase):
             # 服务闸门弧使用负成本（奖励）
             from config.costs import build_service_reward_coefficients
             
-            base_weight = float(self.cfg.costs_equity.unmet_weight_default)
+            base_weight = float(self.cfg.costs_equity.service_weight_default)
             vot = float(self.cfg.costs_equity.vot)
             
             # 检查是否有覆盖权重
