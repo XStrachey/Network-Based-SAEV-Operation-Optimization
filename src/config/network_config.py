@@ -16,7 +16,7 @@ class Paths:
     base_i2k: str = "../../data/base_i2k.parquet"       # 列: i, k, base_minutes[, dist_km]
     coeff_schedule: str = "../../data/coeff_schedule.csv"  # 列: t, gamma_rep_p, beta_chg_p1, beta_chg_p2
     coeff_energy: str = "../../data/coeff_energy.csv"      # 列: t, de_per_km_srv, de_per_km_rep, de_per_km_tochg
-    fleet_init: str = "../../data/fleet_init.csv"
+    fleet_init: str = "../../data/fleet_init.csv"       # 列: zone, soc (仅用于确定初始节点位置，不用于数量分配)
 
 # -------------------------
 # 时间与 SOC 离散
@@ -58,7 +58,7 @@ class CostsAndEquity:
     beta_chg: float = 1.0                # 充电占用系数 β_chg_p2
 
     # —— 服务奖励 / 未满足惩罚 —— 
-    unmet_weight_default: float = 157    # 06 的 svc_gate 奖励可等价为 -VOT*unmet_weight_default
+    unmet_weight_default: float = 15.7    # 06 的 svc_gate 奖励可等价为 -VOT*unmet_weight_default
 
     # —— 新目标函数：收益项系数（请保持非负）——
     gamma_reposition_reward: float = 0.2  # 重定位收益系数 γ_rep（施加在 reposition 弧，按目的地 j 与 t）
@@ -120,6 +120,39 @@ class ModelFlags:
     enable_charging_reward: bool = True      # α_chg * ΔSOC 的充电收益
 
 @dataclass
+class ArcTypeControl:
+    """弧类型生成控制配置"""
+    # 弧类型开关
+    enable_idle: bool = True         # 启用idle弧生成
+    enable_service: bool = True      # 启用service弧生成
+    enable_reposition: bool = False   # 启用reposition弧生成
+    enable_charging: bool = True     # 启用charging弧生成
+    
+    # 弧类型优先级（用于调试时按顺序生成）
+    generation_order: List[str] = None
+    
+    def __post_init__(self):
+        if self.generation_order is None:
+            self.generation_order = ["idle", "service", "reposition", "charging"]
+    
+    def get_enabled_types(self) -> List[str]:
+        """获取启用的弧类型列表"""
+        enabled = []
+        if self.enable_idle:
+            enabled.append("idle")
+        if self.enable_service:
+            enabled.append("service")
+        if self.enable_reposition:
+            enabled.append("reposition")
+        if self.enable_charging:
+            enabled.append("charging")
+        return enabled
+    
+    def is_type_enabled(self, arc_type: str) -> bool:
+        """检查特定弧类型是否启用"""
+        return getattr(self, f"enable_{arc_type}", False)
+
+@dataclass
 class EnergyRates:
     de_per_km_srv: float = 1
     de_per_km_rep: float = 1
@@ -128,6 +161,16 @@ class EnergyRates:
 @dataclass
 class BasicConfig:
     avg_speed_kmh: float = 80.0
+
+# -------------------------
+# 车队配置
+# -------------------------
+@dataclass
+class FleetConfig:
+    """车队配置"""
+    total_fleet_size: int = 200              # 总车队规模
+    initial_soc_level: int = 100             # 初始SOC水平（百分比）
+    # 注意：fleet_init.csv 中的 count 列将被忽略，仅使用 zone, soc 列来确定初始节点位置
 
 # R1PruneConfig 已移除 - 不再需要生成后裁剪，改为需求驱动的生成端控制
 
@@ -145,8 +188,10 @@ class NetworkConfig:
     pruning: PruningRules = field(default_factory=PruningRules)
     solver: SolverConfig = field(default_factory=SolverConfig)
     flags: ModelFlags = field(default_factory=ModelFlags)
+    arc_control: ArcTypeControl = field(default_factory=ArcTypeControl)
     energy: EnergyRates = field(default_factory=EnergyRates)
     basic: BasicConfig = field(default_factory=BasicConfig)
+    fleet: FleetConfig = field(default_factory=FleetConfig)
 
     # C_level 的 (t,i,j) 权重覆盖（需要时自行填充）
     unmet_weights_overrides: Optional[Dict[int, Dict[Any, float]]] = None

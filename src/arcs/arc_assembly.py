@@ -28,7 +28,7 @@ from arcs.charging_arc import ChargingArc
 class ArcAssembly:
     """弧组装器 - 管理所有弧类型的生成和整合"""
     
-    def __init__(self, cfg=None, gi: GridIndexers = None):
+    def __init__(self, cfg=None, gi: GridIndexers = None, arc_types_override=None):
         self.cfg = cfg or get_config()
         self.gi = gi or load_indexer()
         self.reachable_set = load_reachability_with_time()
@@ -41,8 +41,34 @@ class ArcAssembly:
             "charging": {"generator": None, "enabled": True, "description": "充电弧"},
         }
         
+        # 应用配置中的弧类型控制
+        self._apply_arc_type_control()
+        
+        # 应用外部覆盖（如果提供）
+        if arc_types_override is not None:
+            self._apply_arc_types_override(arc_types_override)
+        
         # 初始化弧生成器
         self._initialize_generators()
+    
+    def _apply_arc_type_control(self):
+        """应用配置中的弧类型控制设置"""
+        if hasattr(self.cfg, 'arc_control'):
+            arc_control = self.cfg.arc_control
+            self.arc_types["idle"]["enabled"] = arc_control.enable_idle
+            self.arc_types["service"]["enabled"] = arc_control.enable_service
+            self.arc_types["reposition"]["enabled"] = arc_control.enable_reposition
+            self.arc_types["charging"]["enabled"] = arc_control.enable_charging
+    
+    def _apply_arc_types_override(self, arc_types_override):
+        """应用外部提供的弧类型覆盖设置
+        
+        Args:
+            arc_types_override: 字典，键为弧类型，值为是否启用
+        """
+        for arc_type, enabled in arc_types_override.items():
+            if arc_type in self.arc_types:
+                self.arc_types[arc_type]["enabled"] = enabled
     
     def _initialize_generators(self):
         """初始化所有弧生成器"""
@@ -68,6 +94,41 @@ class ArcAssembly:
                 except Exception as e:
                     print(f"[ArcAssembly] 警告: 无法启用 {arc_type} 弧生成器: {e}")
                     self.arc_types[arc_type]["enabled"] = False
+    
+    def enable_only_arc_types(self, arc_types: List[str]):
+        """只启用指定的弧类型，禁用其他所有类型
+        
+        Args:
+            arc_types: 要启用的弧类型列表，如 ['idle', 'service']
+        """
+        # 首先禁用所有类型
+        for arc_type in self.arc_types.keys():
+            self.arc_types[arc_type]["enabled"] = False
+        
+        # 然后启用指定的类型
+        for arc_type in arc_types:
+            if arc_type in self.arc_types:
+                self.set_arc_type_enabled(arc_type, True)
+    
+    def disable_arc_types(self, arc_types: List[str]):
+        """禁用指定的弧类型
+        
+        Args:
+            arc_types: 要禁用的弧类型列表
+        """
+        for arc_type in arc_types:
+            if arc_type in self.arc_types:
+                self.arc_types[arc_type]["enabled"] = False
+    
+    def get_enabled_arc_types(self) -> List[str]:
+        """获取当前启用的弧类型列表"""
+        return [arc_type for arc_type, config in self.arc_types.items() 
+                if config["enabled"]]
+    
+    def get_arc_type_status(self) -> Dict[str, bool]:
+        """获取所有弧类型的启用状态"""
+        return {arc_type: config["enabled"] 
+                for arc_type, config in self.arc_types.items()}
     
     def generate_all_arcs(self, 
                          t0: Optional[int] = None,

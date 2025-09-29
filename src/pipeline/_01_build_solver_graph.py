@@ -147,7 +147,8 @@ def _add_total_fleet_source_arcs(arcs: pd.DataFrame, initial_nodes: Set[int],
 
 
 def _compute_supply_vector_with_source(nodes: pd.DataFrame, V0: pd.DataFrame, 
-                                     t0: int, source_id: int, sink_id: int) -> pd.DataFrame:
+                                     t0: int, source_id: int, sink_id: int, 
+                                     total_fleet_size: float) -> pd.DataFrame:
     """计算包含总源和汇点的完整供给向量"""
     nodes_out = nodes.copy()
     nodes_out["supply"] = 0.0
@@ -163,8 +164,7 @@ def _compute_supply_vector_with_source(nodes: pd.DataFrame, V0: pd.DataFrame,
     #         sel = nodes_out["node_id"].map(mp)
     #         nodes_out.loc[sel.notna(), "supply"] = sel.dropna().astype(float)
     
-    # 添加总源节点（正供给）
-    total_fleet_size = float(V0["count"].sum())
+    # 添加总源节点（正供给）- 使用配置中的总车队规模
     source_row = pd.DataFrame({
         "node_id": [source_id],
         "supply": [total_fleet_size],
@@ -278,6 +278,7 @@ def build_solver_graph(
     cost_to_sink: float = 0.0,
     cap_infinite: float = 1e12,
     out_dir: str = "data/solver_graph",
+    arc_types_override: Optional[Dict[str, bool]] = None,
 ) -> Dict[str, str]:
     """
     返回落盘路径字典。t0/H 缺省时从配置读取。
@@ -301,8 +302,13 @@ def build_solver_graph(
     # 1) 弧：使用新架构生成
     from utils.grid_utils import load_indexer
     gi = load_indexer()
-    assembly = ArcAssembly(cfg, gi)
+    assembly = ArcAssembly(cfg, gi, arc_types_override=arc_types_override)
     B = int(cfg.time_soc.overhang_steps)
+    
+    # 显示启用的弧类型
+    enabled_types = assembly.get_enabled_arc_types()
+    print(f"[solver-graph] 启用的弧类型: {enabled_types}")
+    
     arc_df_win = assembly.generate_for_window(t0=int(t0), H=int(H), B=B)
 
     # 2) 连通性裁剪（05）
@@ -368,14 +374,17 @@ def build_solver_graph(
         )
 
     # 9) 节点供给（使用新的包含总源和汇点的逻辑）
+    # 从配置中读取总车队规模，而不是从V0中计算
+    total_fleet_size = float(cfg.fleet.total_fleet_size)
+    
     if add_sink:
         nodes_with_supply = _compute_supply_vector_with_source(
-            nodes, V0, t0=int(t0), source_id=source_id, sink_id=sink_id
+            nodes, V0, t0=int(t0), source_id=source_id, sink_id=sink_id, 
+            total_fleet_size=total_fleet_size
         )
     else:
         # 如果不添加汇点，只添加总源节点
         nodes_with_supply = _compute_supply_vector_at_t0(V0, nodes, t0=int(t0))
-        total_fleet_size = float(V0["count"].sum())
         source_row = pd.DataFrame({
             "node_id": [source_id],
             "supply": [total_fleet_size],
@@ -436,7 +445,7 @@ def build_solver_graph(
         "sup_total": float(nodes_with_supply["supply"].clip(lower=0).sum()),
         "source_node_id": int(source_id) if source_id is not None else None,
         "sink_node_id": int(sink_id) if sink_id is not None else None,
-        "total_fleet_size": float(V0["count"].sum()),
+        "total_fleet_size": float(total_fleet_size),
         "flow_conservation": "complete",  # 标识完整的流守恒约束
         "paths": {"nodes": str(nodes_path), "arcs": str(arcs_path)},
     }
@@ -445,7 +454,7 @@ def build_solver_graph(
     print("[solver-graph] done.")
     print(f"  use cfg: t0={t0} (start_step), H={H} (window_length), t_hi={t_hi}")
     print(f"  architecture: new_oop_with_total_source")
-    print(f"  total fleet size: {float(V0['count'].sum()):,.1f}")
+    print(f"  total fleet size: {float(total_fleet_size):,.1f}")
     print(f"  source node ID: {source_id}")
     if sink_id is not None:
         print(f"  sink node ID: {sink_id}")
@@ -474,6 +483,14 @@ def main():
     ap.add_argument("--check-neg-cycles", type=_parse_bool, default=None, help="是否检测负环（默认 cfg.solver.check_negative_cycles）")
     ap.add_argument("--no-r1-prune", type=_parse_bool, default=False, help="禁用R1重定位弧定向裁剪")
     ap.add_argument("--out", type=str, default="data/solver_graph", help="输出目录")
+    
+    # 弧类型控制参数
+    ap.add_argument("--enable-idle", type=_parse_bool, default=None, help="启用idle弧生成")
+    ap.add_argument("--enable-service", type=_parse_bool, default=None, help="启用service弧生成")
+    ap.add_argument("--enable-reposition", type=_parse_bool, default=None, help="启用reposition弧生成")
+    ap.add_argument("--enable-charging", type=_parse_bool, default=None, help="启用charging弧生成")
+    ap.add_argument("--arc-types", type=str, default=None, help="指定启用的弧类型，用逗号分隔，如 'idle,service'")
+    
     args = ap.parse_args()
 
     # 临时修改配置
@@ -481,6 +498,30 @@ def main():
         cfg.solver.check_negative_cycles = bool(args.check_neg_cycles)
     if args.no_r1_prune:
         cfg.r1_prune.enabled = False
+    
+    # 处理弧类型控制参数
+    arc_types_override = None
+    if args.arc_types is not None:
+        # 使用 --arc-types 参数
+        enabled_types = [t.strip() for t in args.arc_types.split(',')]
+        arc_types_override = {}
+        for arc_type in ["idle", "service", "reposition", "charging"]:
+            arc_types_override[arc_type] = arc_type in enabled_types
+        print(f"[solver-graph] 使用 --arc-types 参数: {enabled_types}")
+    else:
+        # 使用单独的开关参数
+        arc_types_override = {}
+        if args.enable_idle is not None:
+            arc_types_override["idle"] = args.enable_idle
+        if args.enable_service is not None:
+            arc_types_override["service"] = args.enable_service
+        if args.enable_reposition is not None:
+            arc_types_override["reposition"] = args.enable_reposition
+        if args.enable_charging is not None:
+            arc_types_override["charging"] = args.enable_charging
+        
+        if arc_types_override:
+            print(f"[solver-graph] 使用弧类型覆盖参数: {arc_types_override}")
     
     build_solver_graph(
         t0=args.t0,
@@ -491,6 +532,7 @@ def main():
         cost_to_sink=float(args.cost_to_sink),
         cap_infinite=float(args.cap_infinite),
         out_dir=args.out,
+        arc_types_override=arc_types_override,
     )
 
 if __name__ == "__main__":

@@ -149,7 +149,7 @@ class ServiceArc(ArcBase):
         cost = ArcCost()
         
         if arc.arc_type == "svc_gate":
-            # 服务闸门弧使用负成本（奖励） - 使用正确的成本计算
+            # 服务闸门弧使用负成本（奖励）
             from config.costs import build_service_reward_coefficients
             
             base_weight = float(self.cfg.costs_equity.unmet_weight_default)

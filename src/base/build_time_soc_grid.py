@@ -106,7 +106,9 @@ def load_initial_inventory(cfg, gi: GridIndexers) -> pd.DataFrame:
     """
     读取初始车量库存 cfg.paths.fleet_init -> DataFrame:
       columns: zone, soc, count  （仅 t = start_step）
-    自动校验与对齐 zone/soc，缺失组合填 0；重复 (zone,soc) 聚合；负数计数截为 0。
+    
+    注意：count列将被忽略，仅使用zone, soc列来确定初始节点位置。
+    总车队规模从 cfg.fleet.total_fleet_size 读取。
     """
     fp = Path(cfg.paths.fleet_init)
     if not fp.exists():
@@ -115,18 +117,19 @@ def load_initial_inventory(cfg, gi: GridIndexers) -> pd.DataFrame:
     df = pd.read_csv(fp)
     col_zone = first_present(df.columns, ["zone", "taz", "zone_id"])
     col_soc  = first_present(df.columns, ["soc", "soc_level"])
-    col_cnt  = first_present(df.columns, ["count", "quantity"])
-    if col_zone is None or col_soc is None or col_cnt is None:
-        raise ValueError("fleet_init.csv 必须包含列: zone(或 taz), soc(或 soc_level), count(或 quantity)。")
+    
+    if col_zone is None or col_soc is None:
+        raise ValueError("fleet_init.csv 必须包含列: zone(或 taz), soc(或 soc_level)。count列将被忽略。")
 
-    df = df[[col_zone, col_soc, col_cnt]].rename(
-        columns={col_zone: "zone", col_soc: "soc", col_cnt: "count"}
+    # 只读取zone和soc列，忽略count列
+    df = df[[col_zone, col_soc]].rename(
+        columns={col_zone: "zone", col_soc: "soc"}
     )
-    df["zone"]  = df["zone"].astype(int)
-    df["soc"]   = df["soc"].astype(int)
-    df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0.0).astype(float)
-    df.loc[df["count"] < 0, "count"] = 0.0
-    df = df.groupby(["zone", "soc"], as_index=False)["count"].sum()
+    df["zone"] = df["zone"].astype(int)
+    df["soc"]  = df["soc"].astype(int)
+    
+    # 去重，因为count列被忽略
+    df = df.drop_duplicates(subset=["zone", "soc"])
 
     # 校验 zone/soc
     invalid_z = set(df["zone"].unique()) - set(gi.zones)
@@ -136,15 +139,11 @@ def load_initial_inventory(cfg, gi: GridIndexers) -> pd.DataFrame:
     if invalid_soc:
         raise ValueError(f"fleet_init 包含未知 SOC 水平（不在 config.time_soc.soc_levels 中）: {sorted(invalid_soc)}")
 
-    # 补全所有 (zone, soc) 组合，并赋 t = start_step
-    full = (
-        pd.MultiIndex.from_product([gi.zones, gi.socs], names=["zone", "soc"])
-        .to_frame(index=False)
-        .merge(df, on=["zone", "soc"], how="left")
-        .fillna({"count": 0.0})
-    )
-    full["t"] = gi.times[0]
-    return full[["zone", "soc", "t", "count"]]
+    # 为每个初始节点位置设置count=1（仅用于标识，实际数量由总源节点控制）
+    df["count"] = 1.0
+    df["t"] = gi.times[0]
+    
+    return df[["zone", "soc", "t", "count"]]
 
 
 # ----------------------------

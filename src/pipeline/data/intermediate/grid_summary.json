@@ -5,7 +5,7 @@
   "num_nodes": 168,
   "nodes_path": "data/intermediate/nodes.parquet",
   "initial_inventory_path": "data/intermediate/initial_inventory.parquet",
-  "init_total": 200.0,
+  "init_total": 2.0,
   "init_soc_levels_used": [
     100
   ],
