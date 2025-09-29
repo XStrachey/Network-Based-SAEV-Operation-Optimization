@@ -1,0 +1,21 @@
+{
+  "t0": 1,
+  "H": 8,
+  "t_hi": 8,
+  "keep_on": "from",
+  "require_bwd": false,
+  "add_sink": true,
+  "cap_infinite": 1000000000000.0,
+  "architecture": "new_oop_with_total_source",
+  "nodes": 123,
+  "arcs": 268,
+  "sup_total": 200.0,
+  "source_node_id": -2065537959644669801,
+  "sink_node_id": -8724511148913574225,
+  "total_fleet_size": 200.0,
+  "flow_conservation": "complete",
+  "paths": {
+    "nodes": "../../outputs_tou_off_peak/solver_graph/nodes.parquet",
+    "arcs": "../../outputs_tou_off_peak/solver_graph/arcs.parquet"
+  }
+}

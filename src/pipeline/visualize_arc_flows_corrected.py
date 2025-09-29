@@ -607,8 +607,8 @@ def main():
         print_detailed_stats(df, df_corrected, aggregated_df)
         
         # 创建可视化
-        output_dir = Path("viz/")
-        output_dir.mkdir(exist_ok=True)
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         print("\nCreating visualizations...")
         

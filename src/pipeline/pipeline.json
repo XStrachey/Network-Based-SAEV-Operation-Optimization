@@ -4,13 +4,16 @@
   "default_timeout": 0,
   "steps": [
     {
-      "script": "_01_build_solver_graph.py"
+      "script": "run_scenario.py",
+      "args": ["--scenario", "fcfs"]
     },
     {
-      "script": "_02_solve_graph_mincost.py"
+      "script": "run_scenario.py",
+      "args": ["--scenario", "tou_peak"]
     },
     {
-      "script": "visualize_arc_flows_corrected.py"
+      "script": "run_scenario.py",
+      "args": ["--scenario", "tou_off_peak"]
     }
   ]
 }

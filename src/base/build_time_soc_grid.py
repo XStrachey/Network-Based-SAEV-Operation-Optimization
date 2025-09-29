@@ -149,8 +149,8 @@ def load_initial_inventory(cfg, gi: GridIndexers) -> pd.DataFrame:
 # ----------------------------
 # 落盘
 # ----------------------------
-def save_artifacts(cfg, gi: GridIndexers, nodes: pd.DataFrame, V0: pd.DataFrame) -> None:
-    inter_dir = Path("data/intermediate")
+def save_artifacts(cfg, gi: GridIndexers, nodes: pd.DataFrame, V0: pd.DataFrame, inter_dir: str = "data/intermediate") -> None:
+    inter_dir = Path(inter_dir)
     ensure_dir(inter_dir)
 
     # nodes

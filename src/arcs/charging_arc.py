@@ -29,6 +29,10 @@ from utils.data_loader import (
 class ChargingArc(ArcBase):
     """Charging弧实现 - 纯网络化的充电弧（占用链）"""
     
+    def __init__(self, cfg=None, gi: GridIndexers = None, inter_dir: str = "data/intermediate"):
+        super().__init__(cfg, gi)
+        self.inter_dir = inter_dir
+    
     @property
     def arc_type_name(self) -> str:
         return "charging"
@@ -39,7 +43,7 @@ class ChargingArc(ArcBase):
         - zone_station_best.parquet: 列含 i,k,dist_km,tau_steps
         - nearest_stations.json: {i: [k1,k2,...]}
         """
-        out_dir = Path("data/intermediate")
+        out_dir = Path(self.inter_dir)
         best_path = out_dir / "zone_station_best.parquet"
         nearest_path = out_dir / "nearest_stations.json"
         

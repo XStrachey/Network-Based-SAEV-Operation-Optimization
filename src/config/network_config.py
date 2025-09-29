@@ -1,8 +1,10 @@
 # _01_network/network_config.py
-# 网络求解方案的独立配置
+# 网络求解方案的独立配置 - 支持基于JSON配置的架构
 
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any, Optional
+import json
+from pathlib import Path
 
 # -------------------------
 # 路径（仅必需外部输入 + 输出）
@@ -201,11 +203,93 @@ class NetworkConfig:
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+# -------------------------
+# JSON配置加载器
+# -------------------------
+class ConfigLoader:
+    """基于JSON文件的配置加载器"""
+    
+    @staticmethod
+    def load_from_json(json_path: str) -> NetworkConfig:
+        """从JSON文件加载配置"""
+        json_path = Path(json_path)
+        if not json_path.exists():
+            raise FileNotFoundError(f"配置文件不存在: {json_path}")
+        
+        with open(json_path, 'r', encoding='utf-8') as f:
+            config_dict = json.load(f)
+        
+        return ConfigLoader._dict_to_config(config_dict)
+    
+    @staticmethod
+    def _dict_to_config(config_dict: Dict[str, Any]) -> NetworkConfig:
+        """将字典转换为NetworkConfig对象"""
+        # 创建默认配置
+        config = NetworkConfig()
+        
+        # 更新路径配置
+        if 'paths' in config_dict:
+            for key, value in config_dict['paths'].items():
+                if hasattr(config.paths, key):
+                    setattr(config.paths, key, value)
+        
+        # 更新时间SOC配置
+        if 'time_soc' in config_dict:
+            for key, value in config_dict['time_soc'].items():
+                if hasattr(config.time_soc, key):
+                    setattr(config.time_soc, key, value)
+        
+        # 更新充电配置
+        if 'charging' in config_dict:
+            for key, value in config_dict['charging'].items():
+                if hasattr(config.charge_queue, key):
+                    setattr(config.charge_queue, key, value)
+        
+        # 更新成本配置
+        if 'costs' in config_dict:
+            for key, value in config_dict['costs'].items():
+                if hasattr(config.costs_equity, key):
+                    setattr(config.costs_equity, key, value)
+        
+        # 更新求解器配置
+        if 'solver' in config_dict:
+            for key, value in config_dict['solver'].items():
+                if hasattr(config.solver, key):
+                    setattr(config.solver, key, value)
+        
+        # 更新网络参数
+        if 'network' in config_dict:
+            network_params = config_dict['network']
+            if 't0' in network_params:
+                config.time_soc.start_step = network_params['t0']
+            if 'H' in network_params:
+                config.time_soc.window_length = network_params['H']
+            if 'dt_minutes' in network_params:
+                config.time_soc.dt_minutes = network_params['dt_minutes']
+        
+        # 更新车队配置
+        if 'fleet' in config_dict:
+            for key, value in config_dict['fleet'].items():
+                if hasattr(config.fleet, key):
+                    setattr(config.fleet, key, value)
+        
+        return config
+
 # 便捷获取（模块级单例）
 _cfg_singleton = NetworkConfig()
 
-def get_network_config() -> NetworkConfig:
-    return _cfg_singleton
+def get_network_config(scenario: str = None) -> NetworkConfig:
+    """获取网络配置
+    
+    Args:
+        scenario: 场景名称，如果提供则从对应的JSON文件加载
+    """
+    if scenario is None:
+        return _cfg_singleton
+    
+    # 从场景JSON文件加载配置
+    scenario_path = f"../../configs/{scenario}.json"
+    return ConfigLoader.load_from_json(scenario_path)
 
 if __name__ == "__main__":
     import pprint

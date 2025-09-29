@@ -245,12 +245,12 @@ class ArcFactory:
         cls._arc_classes[arc_type] = arc_class
     
     @classmethod
-    def create_arc(cls, arc_type: str, cfg=None, gi: GridIndexers = None) -> ArcBase:
+    def create_arc(cls, arc_type: str, cfg=None, gi: GridIndexers = None, inter_dir: str = "data/intermediate") -> ArcBase:
         """创建指定类型的弧"""
         if arc_type not in cls._arc_classes:
             raise ValueError(f"未知的弧类型: {arc_type}")
         
-        return cls._arc_classes[arc_type](cfg, gi)
+        return cls._arc_classes[arc_type](cfg, gi, inter_dir)
     
     @classmethod
     def get_available_types(cls) -> List[str]:
@@ -273,8 +273,8 @@ def load_reachability_with_time(path="data/intermediate/reachability.parquet") -
 
 class CoeffProvider:
     """
-    提供时间可变成本系数 γ_rep_p(t), β_chg_p1(t), β_chg_p2(t) 以及 VOT。
-    优先从 cfg.paths.coeff_schedule 读取（列: t, gamma_rep_p, beta_chg_p1, beta_chg_p2），
+    提供时间可变成本系数 γ_rep_p(t), β_chg_p1(t), β_chg_p2(t), tou_price(t) 以及 VOT。
+    优先从 cfg.paths.coeff_schedule 读取（列: t, gamma_rep_p, beta_chg_p1, beta_chg_p2, tou_price），
     若缺失则回退到 config.costs_equity 的常数。
     """
     def __init__(self, schedule_path: Optional[str] = None):
@@ -286,6 +286,7 @@ class CoeffProvider:
         self.gamma_rep_p_const = float(ce.gamma_rep)     # 重定位时间成本
         self.beta_chg_p1_const = float(ce.beta_toCHG)    # 去充电行驶成本
         self.beta_chg_p2_const = float(ce.beta_chg)      # 充电占位成本
+        self.tou_price_const = 0.0                       # 默认TOU价格为0（FCFS）
 
         if schedule_path is None:
             schedule_path = cfg.paths.coeff_schedule
@@ -294,6 +295,7 @@ class CoeffProvider:
         self.map_gamma_rep_p: Dict[int, float] = {}
         self.map_beta_chg_p1: Dict[int, float] = {}
         self.map_beta_chg_p2: Dict[int, float] = {}
+        self.map_tou_price: Dict[int, float] = {}
         if self.has_schedule:
             sch = pd.read_csv(schedule_path)
             if "t" not in sch.columns:
@@ -302,15 +304,18 @@ class CoeffProvider:
             if "gamma_rep_p" not in sch.columns: sch["gamma_rep_p"] = self.gamma_rep_p_const
             if "beta_chg_p1" not in sch.columns: sch["beta_chg_p1"] = self.beta_chg_p1_const
             if "beta_chg_p2" not in sch.columns: sch["beta_chg_p2"] = self.beta_chg_p2_const
+            if "tou_price" not in sch.columns: sch["tou_price"] = self.tou_price_const
             sch["t"] = sch["t"].astype(int)
             self.map_gamma_rep_p = dict(zip(sch["t"], sch["gamma_rep_p"].astype(float)))
             self.map_beta_chg_p1 = dict(zip(sch["t"], sch["beta_chg_p1"].astype(float)))
             self.map_beta_chg_p2 = dict(zip(sch["t"], sch["beta_chg_p2"].astype(float)))
+            self.map_tou_price = dict(zip(sch["t"], sch["tou_price"].astype(float)))
 
     # 点值
     def gamma_rep_p(self, t: int) -> float: return float(self.map_gamma_rep_p.get(int(t), self.gamma_rep_p_const))
     def beta_chg_p1(self, t: int) -> float: return float(self.map_beta_chg_p1.get(int(t), self.beta_chg_p1_const))
     def beta_chg_p2(self, t: int) -> float: return float(self.map_beta_chg_p2.get(int(t), self.beta_chg_p2_const))
+    def tou_price(self, t: int) -> float: return float(self.map_tou_price.get(int(t), self.tou_price_const))
 
     # 区间累加
     def gamma_rep_p_sum_over_window(self, t_start: int, tau: int) -> float:

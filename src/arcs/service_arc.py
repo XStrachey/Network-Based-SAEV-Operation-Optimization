@@ -24,6 +24,10 @@ from utils.data_loader import load_od_matrix, load_base_ij
 class ServiceArc(ArcBase):
     """Service弧实现 - 纯网络化的服务弧（三段式：enter, gate, exit）"""
     
+    def __init__(self, cfg=None, gi: GridIndexers = None, inter_dir: str = "data/intermediate"):
+        super().__init__(cfg, gi)
+        self.inter_dir = inter_dir
+    
     @property
     def arc_type_name(self) -> str:
         return "service"
@@ -171,7 +175,7 @@ def main():
     # 转换为DataFrame并保存
     df = service_generator.to_dataframe(arcs)
     
-    output_dir = Path("data/intermediate")
+    output_dir = Path(self.inter_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     output_path = output_dir / "service_arcs_new.parquet"

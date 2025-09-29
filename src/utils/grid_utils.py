@@ -71,14 +71,17 @@ class GridIndexers:
         """返回总节点数量"""
         return self.n_z * self.n_t * self.n_l
 
-def load_indexer() -> GridIndexers:
+def load_indexer(inter_dir: str = "data/intermediate") -> GridIndexers:
     """
     从pickle文件加载网格索引器
     
+    Args:
+        inter_dir: 中间文件目录路径
+        
     Returns:
         GridIndexers对象
     """
-    with open(Path("data/intermediate/node_indexer.pkl"), "rb") as f:
+    with open(Path(f"{inter_dir}/node_indexer.pkl"), "rb") as f:
         return pickle.load(f)
 
 def ensure_dir(p: Path) -> None:

@@ -1,0 +1,47 @@
+{
+  "name": "FCFS Baseline",
+  "description": "先到先服务固定定价基线",
+  "paths": {
+    "zones": "../../data/zones.csv",
+    "stations": "../../data/stations.csv",
+    "od_matrix": "../../data/od_matrix.parquet",
+    "base_ij": "../../data/base_ij.parquet",
+    "base_i2k": "../../data/base_i2k.parquet",
+    "coeff_schedule": "../../data/coeff_schedule_fcfs.csv",
+    "coeff_energy": "../../data/coeff_energy.csv",
+    "fleet_init": "../../data/fleet_init.csv"
+  },
+  "network": {
+    "t0": 1,
+    "H": 8,
+    "dt_minutes": 15
+  },
+  "charging": {
+    "queue_relax_factor": 1.2,
+    "min_charge_step": 20,
+    "default_plugs_per_station": 1
+  },
+  "costs": {
+    "vot": 1.0,
+    "gamma_rep": 1.0,
+    "beta_toCHG": 1.0,
+    "beta_chg": 1.0,
+    "service_weight_default": 15.7,
+    "idle_opportunity_cost": 10.0,
+    "gamma_reposition_reward": 0.2,
+    "beta_chg_reward": 0.02
+  },
+  "solver": {
+    "solver_name": "glpk",
+    "time_limit_sec": 3600,
+    "verbose": true
+  },
+  "fleet": {
+    "total_fleet_size": 200,
+    "initial_soc_level": 60
+  },
+  "output": {
+    "dir": "../../outputs_fcfs",
+    "include_visualization": true
+  }
+}

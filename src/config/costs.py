@@ -44,8 +44,8 @@ CHARGING_TYPES    = {"tochg", "chg_enter", "chg_occ", "chg_step"}
 # =========================
 class CoeffProvider:
     """
-    提供时间可变成本系数 γ_rep_p(t), β_chg_p1(t), β_chg_p2(t) 以及 VOT。
-    优先从 cfg.paths.coeff_schedule 读取（列: t, gamma_rep_p, beta_chg_p1, beta_chg_p2），
+    提供时间可变成本系数 γ_rep_p(t), β_chg_p1(t), β_chg_p2(t), tou_price(t) 以及 VOT。
+    优先从 cfg.paths.coeff_schedule 读取（列: t, gamma_rep_p, beta_chg_p1, beta_chg_p2, tou_price），
     若缺失则回退到 config.costs_equity 的常数。
     """
     def __init__(self, schedule_path: Optional[str] = None):
@@ -57,6 +57,7 @@ class CoeffProvider:
         self.gamma_rep_p_const = float(ce.gamma_rep)     # 重定位时间成本
         self.beta_chg_p1_const = float(ce.beta_toCHG)    # 去充电行驶成本
         self.beta_chg_p2_const = float(ce.beta_chg)      # 充电占位成本
+        self.tou_price_const = 0.0                       # 默认TOU价格为0（FCFS）
 
         if schedule_path is None:
             schedule_path = cfg.paths.coeff_schedule
@@ -65,6 +66,7 @@ class CoeffProvider:
         self.map_gamma_rep_p: Dict[int, float] = {}
         self.map_beta_chg_p1: Dict[int, float] = {}
         self.map_beta_chg_p2: Dict[int, float] = {}
+        self.map_tou_price: Dict[int, float] = {}
         if self.has_schedule:
             sch = pd.read_csv(schedule_path)
             if "t" not in sch.columns:
@@ -73,15 +75,18 @@ class CoeffProvider:
             if "gamma_rep_p" not in sch.columns: sch["gamma_rep_p"] = self.gamma_rep_p_const
             if "beta_chg_p1" not in sch.columns: sch["beta_chg_p1"] = self.beta_chg_p1_const
             if "beta_chg_p2" not in sch.columns: sch["beta_chg_p2"] = self.beta_chg_p2_const
+            if "tou_price" not in sch.columns: sch["tou_price"] = self.tou_price_const
             sch["t"] = sch["t"].astype(int)
             self.map_gamma_rep_p = dict(zip(sch["t"], sch["gamma_rep_p"].astype(float)))
             self.map_beta_chg_p1 = dict(zip(sch["t"], sch["beta_chg_p1"].astype(float)))
             self.map_beta_chg_p2 = dict(zip(sch["t"], sch["beta_chg_p2"].astype(float)))
+            self.map_tou_price = dict(zip(sch["t"], sch["tou_price"].astype(float)))
 
     # 点值
     def gamma_rep_p(self, t: int) -> float: return float(self.map_gamma_rep_p.get(int(t), self.gamma_rep_p_const))
     def beta_chg_p1(self, t: int) -> float: return float(self.map_beta_chg_p1.get(int(t), self.beta_chg_p1_const))
     def beta_chg_p2(self, t: int) -> float: return float(self.map_beta_chg_p2.get(int(t), self.beta_chg_p2_const))
+    def tou_price(self, t: int) -> float: return float(self.map_tou_price.get(int(t), self.tou_price_const))
 
     # 区间累加
     def gamma_rep_p_sum_over_window(self, t_start: int, tau: int) -> float:
@@ -330,7 +335,7 @@ def build_charging_travel_costs_from_arcs(tochg_arcs: pd.DataFrame, cp: Optional
 
 
 def build_charging_occupancy_costs_from_arcs(occ_arcs: pd.DataFrame, cp: Optional[CoeffProvider] = None) -> pd.DataFrame:
-    """窗口版：对 'chg_occ' 弧构建每步占用成本（按 t 点取 β2）。"""
+    """窗口版：对 'chg_occ' 弧构建每步占用成本（按 t 点取 β2 + tou_price）。"""
     if occ_arcs is None or occ_arcs.empty:
         return pd.DataFrame(columns=["arc_id","from_node_id","to_node_id","t","coef_chg_occ"])
     need = {"from_node_id","to_node_id","t"}
@@ -340,7 +345,8 @@ def build_charging_occupancy_costs_from_arcs(occ_arcs: pd.DataFrame, cp: Optiona
     cp = cp or CoeffProvider(cfg.paths.coeff_schedule)
     df = occ_arcs.copy()
     df["t"] = df["t"].astype(int)
-    df["coef_chg_occ"] = df["t"].apply(lambda p: cp.vot * cp.beta_chg_p2(int(p)))
+    # 充电占用成本 = VOT * β_chg_p2(t) + tou_price(t)
+    df["coef_chg_occ"] = df["t"].apply(lambda p: cp.vot * cp.beta_chg_p2(int(p)) + cp.tou_price(int(p)))
     out_cols = ["from_node_id","to_node_id","t","coef_chg_occ"]
     if "arc_id" in df.columns: out_cols = ["arc_id"] + out_cols
     return df[out_cols].drop_duplicates(subset=[c for c in out_cols if c != "coef_chg_occ"])

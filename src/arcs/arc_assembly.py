@@ -28,10 +28,11 @@ from arcs.charging_arc import ChargingArc
 class ArcAssembly:
     """弧组装器 - 管理所有弧类型的生成和整合"""
     
-    def __init__(self, cfg=None, gi: GridIndexers = None, arc_types_override=None):
+    def __init__(self, cfg=None, gi: GridIndexers = None, arc_types_override=None, inter_dir: str = "data/intermediate"):
         self.cfg = cfg or get_config()
-        self.gi = gi or load_indexer()
-        self.reachable_set = load_reachability_with_time()
+        self.gi = gi or load_indexer(inter_dir)
+        self.inter_dir = inter_dir
+        self.reachable_set = load_reachability_with_time(f"{inter_dir}/reachability.parquet")
         
         # 弧类型配置
         self.arc_types = {
@@ -75,7 +76,7 @@ class ArcAssembly:
         for arc_type in self.arc_types.keys():
             if self.arc_types[arc_type]["enabled"]:
                 try:
-                    generator = ArcFactory.create_arc(arc_type, self.cfg, self.gi)
+                    generator = ArcFactory.create_arc(arc_type, self.cfg, self.gi, self.inter_dir)
                     self.arc_types[arc_type]["generator"] = generator
                     if self.cfg.solver.verbose:
                         print(f"[ArcAssembly] 初始化 {arc_type} 弧生成器")
@@ -89,7 +90,7 @@ class ArcAssembly:
             self.arc_types[arc_type]["enabled"] = enabled
             if enabled and self.arc_types[arc_type]["generator"] is None:
                 try:
-                    generator = ArcFactory.create_arc(arc_type, self.cfg, self.gi)
+                    generator = ArcFactory.create_arc(arc_type, self.cfg, self.gi, self.inter_dir)
                     self.arc_types[arc_type]["generator"] = generator
                 except Exception as e:
                     print(f"[ArcAssembly] 警告: 无法启用 {arc_type} 弧生成器: {e}")
@@ -147,7 +148,7 @@ class ArcAssembly:
             字典，键为弧类型，值为对应的DataFrame
         """
         results = {}
-        output_dir = Path("data/intermediate")
+        output_dir = Path(self.inter_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
         for arc_type, config in self.arc_types.items():
@@ -241,14 +242,14 @@ class ArcAssembly:
                     lambda r: cp.vot * cp.beta_chg_p1_sum_over_window(int(r["t"]), int(r["tau"])), axis=1
                 )
                 
-                # 充电占用成本 (chg_occ) - 使用跨期成本计算
+                # 充电占用成本 (chg_occ) - 使用跨期成本计算 + TOU定价
                 occ_mask = df["arc_type"] == "chg_occ"
                 df.loc[occ_mask, "coef_chg_occ"] = df.loc[occ_mask].apply(
                     lambda r: cp.vot * cp.beta_chg_p2_sum_over_window(
                         int(r["t"]), 
                         int(r.get("tau_tochg", 0)), 
                         int(r.get("tau_chg", 1))
-                    ), axis=1
+                    ) + cp.tou_price(int(r["t"])), axis=1
                 )
                 
                 # 充电奖励（如果有）
@@ -330,7 +331,7 @@ class ArcAssembly:
             combined_df = combined_df.drop_duplicates(subset=["arc_id"]).sort_values("arc_id").reset_index(drop=True)
         
         if save_combined:
-            output_dir = Path("data/intermediate")
+            output_dir = Path(self.inter_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
             
             output_path = output_dir / "all_arcs_new.parquet"
@@ -404,7 +405,7 @@ class ArcAssembly:
             output_dir: 输出目录
         """
         if output_dir is None:
-            output_dir = Path("data/intermediate")
+            output_dir = Path(self.inter_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # 获取统计信息
@@ -477,8 +478,8 @@ def main():
     assembly.save_metadata(arc_data)
     
     print(f"\n[ArcAssembly] 完成！")
-    print(f"  合并弧文件: data/intermediate/all_arcs_new.parquet")
-    print(f"  元数据文件: data/intermediate/arcs_metadata_new.json")
+    print(f"  合并弧文件: {inter_dir}/all_arcs_new.parquet")
+    print(f"  元数据文件: {inter_dir}/arcs_metadata_new.json")
     
     # 显示一些示例弧
     if not combined_df.empty:

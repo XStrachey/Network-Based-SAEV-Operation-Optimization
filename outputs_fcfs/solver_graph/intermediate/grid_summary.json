@@ -1,0 +1,17 @@
+{
+  "n_zones": 2,
+  "n_times": 8,
+  "n_socs": 11,
+  "num_nodes": 176,
+  "nodes_path": "../../outputs_fcfs/solver_graph/intermediate/nodes.parquet",
+  "initial_inventory_path": "../../outputs_fcfs/solver_graph/intermediate/initial_inventory.parquet",
+  "init_total": 2.0,
+  "init_soc_levels_used": [
+    100
+  ],
+  "time_range": [
+    1,
+    8
+  ],
+  "overhang_steps": 2
+}

@@ -24,6 +24,10 @@ from utils.data_loader import load_base_ij
 class RepositionArc(ArcBase):
     """Reposition弧实现 - 需求驱动的重定位弧生成"""
     
+    def __init__(self, cfg=None, gi: GridIndexers = None, inter_dir: str = "data/intermediate"):
+        super().__init__(cfg, gi)
+        self.inter_dir = inter_dir
+    
     @property
     def arc_type_name(self) -> str:
         return "reposition"
@@ -241,7 +245,7 @@ class RepositionArc(ArcBase):
                     return nodes_df[['zone', 't', 'soc', 'supply']].copy()
             
             # 如果solver_graph数据不存在，尝试从intermediate数据加载
-            intermediate_path = Path("data/intermediate/initial_inventory.parquet")
+            intermediate_path = Path(f"{self.inter_dir}/initial_inventory.parquet")
             if intermediate_path.exists():
                 inventory_df = pd.read_parquet(intermediate_path)
                 
@@ -386,7 +390,7 @@ def main():
     # 转换为DataFrame并保存
     df = reposition_generator.to_dataframe(arcs)
     
-    output_dir = Path("data/intermediate")
+    output_dir = Path(self.inter_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     output_path = output_dir / "reposition_arcs_new.parquet"

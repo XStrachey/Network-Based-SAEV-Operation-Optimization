@@ -21,6 +21,10 @@ from utils.grid_utils import load_indexer
 class IdleArc(ArcBase):
     """Idle弧实现 - 车辆在同一区域等待一个时间步"""
     
+    def __init__(self, cfg=None, gi: GridIndexers = None, inter_dir: str = "data/intermediate"):
+        super().__init__(cfg, gi)
+        self.inter_dir = inter_dir
+    
     @property
     def arc_type_name(self) -> str:
         return "idle"
@@ -40,7 +44,7 @@ class IdleArc(ArcBase):
             B: Halo步数
         """
         # 加载节点数据
-        nodes_df = pd.read_parquet("data/intermediate/nodes.parquet")
+        nodes_df = pd.read_parquet(f"{self.inter_dir}/nodes.parquet")
         
         # 确定时间范围
         if t0 is not None:  # 窗口模式
@@ -116,7 +120,7 @@ def main():
     # 转换为DataFrame并保存
     df = idle_generator.to_dataframe(arcs)
     
-    output_dir = Path("data/intermediate")
+    output_dir = Path(self.inter_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     output_path = output_dir / "idle_arcs_new.parquet"

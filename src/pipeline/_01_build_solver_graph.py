@@ -54,10 +54,10 @@ def _pseudo_node_id(kind: str, *keys) -> int:
     val = int.from_bytes(digest, byteorder="big", signed=False) & 0x7FFFFFFFFFFFFFFF
     return -int(val)
 
-def _maybe_build_grid(cfg) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def _maybe_build_grid(cfg, inter_dir: str = "data/intermediate") -> Tuple[pd.DataFrame, pd.DataFrame]:
     """若缺失 02 的产物，则即时构建；返回 (nodes, V0)。"""
-    nodes_p = Path("data/intermediate/nodes.parquet")
-    inv_p   = Path("data/intermediate/initial_inventory.parquet")
+    nodes_p = Path(f"{inter_dir}/nodes.parquet")
+    inv_p   = Path(f"{inter_dir}/initial_inventory.parquet")
     if nodes_p.exists() and inv_p.exists():
         nodes = pd.read_parquet(nodes_p)
         V0    = pd.read_parquet(inv_p)
@@ -65,12 +65,12 @@ def _maybe_build_grid(cfg) -> Tuple[pd.DataFrame, pd.DataFrame]:
     gi = build_indexers(cfg)
     nodes = materialize_nodes_dataframe(gi)
     V0 = load_initial_inventory(cfg, gi)
-    save_artifacts(cfg, gi, nodes, V0)
+    save_artifacts(cfg, gi, nodes, V0, inter_dir)
     return nodes, V0
 
-def _maybe_build_reachability(cfg) -> None:
+def _maybe_build_reachability(cfg, inter_dir: str = "data/intermediate") -> None:
     """若缺失 03 的中间件，调用 03 的函数生成（而非直接 main）。"""
-    out_dir = Path("data/intermediate")
+    out_dir = Path(inter_dir)
     _ensure_dir(out_dir)
     best_p = out_dir / "zone_station_best.parquet"
     near_p = out_dir / "nearest_stations.json"
@@ -79,7 +79,7 @@ def _maybe_build_reachability(cfg) -> None:
         return
 
     from utils.grid_utils import load_indexer
-    gi = load_indexer()
+    gi = load_indexer(inter_dir)
 
     best = build_zone_station_best(cfg, gi)
     best.to_parquet(best_p, index=False)
@@ -296,13 +296,14 @@ def build_solver_graph(
             H = int(cfg.time_soc.end_step) - int(t0) + 1
 
     # 0) 保障 02 / 03 产物
-    nodes, V0 = _maybe_build_grid(cfg)
-    _maybe_build_reachability(cfg)
+    inter_dir = f"{out_dir}/intermediate"
+    nodes, V0 = _maybe_build_grid(cfg, inter_dir)
+    _maybe_build_reachability(cfg, inter_dir)
 
     # 1) 弧：使用新架构生成
     from utils.grid_utils import load_indexer
-    gi = load_indexer()
-    assembly = ArcAssembly(cfg, gi, arc_types_override=arc_types_override)
+    gi = load_indexer(inter_dir)
+    assembly = ArcAssembly(cfg, gi, arc_types_override=arc_types_override, inter_dir=inter_dir)
     B = int(cfg.time_soc.overhang_steps)
     
     # 显示启用的弧类型
@@ -471,8 +472,8 @@ def _parse_bool(x: str) -> bool:
     return str(x).lower() in {"1","true","y","yes","on"}
 
 def main():
-    cfg = get_config()
     ap = argparse.ArgumentParser(description="Build graph for independent min-cost-flow / graph optimizer (02~06). Uses config defaults when args omitted.")
+    ap.add_argument("--scenario", type=str, help="场景名称 (从JSON配置加载)")
     ap.add_argument("--t0", type=int, default=None, help="窗口起点时间步（默认 cfg.time_soc.start_step）")
     ap.add_argument("--H", type=int, default=None, help="窗口长度 H（默认 cfg.time_soc.window_length）")
     ap.add_argument("--keep-on", type=str, default="from", choices=["from","both","either"], help="连通性裁剪保留规则")
@@ -492,6 +493,9 @@ def main():
     ap.add_argument("--arc-types", type=str, default=None, help="指定启用的弧类型，用逗号分隔，如 'idle,service'")
     
     args = ap.parse_args()
+    
+    # 加载配置（支持场景参数）
+    cfg = get_config(scenario=args.scenario)
 
     # 临时修改配置
     if args.check_neg_cycles is not None:
