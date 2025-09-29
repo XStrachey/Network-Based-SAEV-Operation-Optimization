@@ -25,8 +25,8 @@ class Paths:
 class TimeSOC:
     dt_minutes: int = 15
     start_step: int = 1
-    end_step: int = 10
-    window_length: int = 8           # 窗口长度 H
+    end_step: int = 4
+    window_length: int = 4           # 窗口长度 H
     overhang_steps: int = 2          # Halo：窗外可见/可到达的"缓冲步数"（建议 2~6）
     roll_step: int = 1
     soc_levels: List[int] = None
@@ -121,13 +121,13 @@ class ModelFlags:
 
 @dataclass
 class EnergyRates:
-    de_per_km_srv: float = 0.2
-    de_per_km_rep: float = 0.2
-    de_per_km_tochg: float = 0.2
+    de_per_km_srv: float = 1
+    de_per_km_rep: float = 1
+    de_per_km_tochg: float = 1
 
 @dataclass
 class BasicConfig:
-    avg_speed_kmh: float = 30.0
+    avg_speed_kmh: float = 80.0
 
 # R1PruneConfig 已移除 - 不再需要生成后裁剪，改为需求驱动的生成端控制
 

@@ -49,14 +49,13 @@ def load_zones_from_config(cfg) -> List[int]:
 def build_indexers(cfg) -> GridIndexers:
     """
     构建三维索引器（zone 列表直接来自 zones.csv）
-    时间维度：从 start_step 到 end_step + overhang_steps（含端点）
+    时间维度：从 start_step 到 start_step + window_length - 1（含端点）
     """
     zones = load_zones_from_config(cfg)
 
     t_start = int(cfg.time_soc.start_step)
-    t_end   = int(cfg.time_soc.end_step)
-    over    = int(cfg.time_soc.overhang_steps)
-    ts = list(range(t_start, t_end + over + 1))  # 注意：+1 以包含末端
+    window_length = int(cfg.time_soc.window_length)
+    ts = list(range(t_start, t_start + window_length))  # 注意：不包含末端，所以是 [start_step, start_step + window_length)
 
     socs = [int(x) for x in cfg.time_soc.soc_levels]
 

@@ -1,8 +1,8 @@
 {
   "n_zones": 2,
-  "n_times": 12,
+  "n_times": 4,
   "n_socs": 21,
-  "num_nodes": 504,
+  "num_nodes": 168,
   "nodes_path": "data/intermediate/nodes.parquet",
   "initial_inventory_path": "data/intermediate/initial_inventory.parquet",
   "init_total": 200.0,
@@ -11,7 +11,7 @@
   ],
   "time_range": [
     1,
-    12
+    4
   ],
   "overhang_steps": 2
 }

@@ -11,9 +11,6 @@
     },
     {
       "script": "visualize_arc_flows_corrected.py"
-    },
-    {
-      "script": "vehicle_status_statistics.py"
     }
   ]
 }
