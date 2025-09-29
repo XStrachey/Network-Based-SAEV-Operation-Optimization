@@ -126,9 +126,9 @@ class ArcTypeControl:
     """弧类型生成控制配置"""
     # 弧类型开关
     enable_idle: bool = True         # 启用idle弧生成
-    enable_service: bool = False      # 启用service弧生成
+    enable_service: bool = True      # 启用service弧生成
     enable_reposition: bool = True   # 启用reposition弧生成
-    enable_charging: bool = False     # 启用charging弧生成
+    enable_charging: bool = True     # 启用charging弧生成
     
     # 弧类型优先级（用于调试时按顺序生成）
     generation_order: List[str] = None

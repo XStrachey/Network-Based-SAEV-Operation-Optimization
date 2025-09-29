@@ -1,30 +1,65 @@
 {
   "status": "Optimal",
-  "objective": 6748.888888888889,
-  "total_cost": 6748.888888888889,
-  "total_flow": 1400.0,
-  "nodes": 51,
-  "arcs": 67,
+  "objective": 383.0,
+  "total_cost": 383.0,
+  "total_flow": 2590.0,
+  "nodes": 123,
+  "arcs": 268,
   "by_type": {
+    "chg_enter": {
+      "flow": 170.0,
+      "cost": 0.0,
+      "arcs": 13
+    },
+    "chg_occ": {
+      "flow": 460.0,
+      "cost": 1190.0,
+      "arcs": 28
+    },
+    "chg_step": {
+      "flow": 460.0,
+      "cost": -270.0,
+      "arcs": 47
+    },
     "from_source": {
       "flow": 200.0,
       "cost": 0.0,
       "arcs": 2
     },
     "idle": {
-      "flow": 600.0,
-      "cost": 6000.0,
-      "arcs": 27
+      "flow": 250.0,
+      "cost": 2500.0,
+      "arcs": 59
     },
     "reposition": {
-      "flow": 400.0,
-      "cost": 748.8888888888889,
+      "flow": 50.0,
+      "cost": 90.0,
+      "arcs": 2
+    },
+    "svc_enter": {
+      "flow": 210.0,
+      "cost": 0.0,
       "arcs": 16
+    },
+    "svc_exit": {
+      "flow": 210.0,
+      "cost": 0.0,
+      "arcs": 54
+    },
+    "svc_gate": {
+      "flow": 210.0,
+      "cost": -3297.0,
+      "arcs": 12
     },
     "to_sink": {
       "flow": 200.0,
       "cost": 0.0,
       "arcs": 22
+    },
+    "tochg": {
+      "flow": 170.0,
+      "cost": 170.0,
+      "arcs": 13
     }
   }
 }

@@ -144,34 +144,7 @@ class ServiceArc(ArcBase):
         
         return arcs
     
-    def compute_costs(self, arc: ArcMetadata) -> ArcCost:
-        """计算service弧的成本"""
-        cost = ArcCost()
-        
-        if arc.arc_type == "svc_gate":
-            # 服务闸门弧使用负成本（奖励）
-            from config.costs import build_service_reward_coefficients
-            
-            base_weight = float(self.cfg.costs_equity.service_weight_default)
-            vot = float(self.cfg.costs_equity.vot)
-            
-            # 检查是否有覆盖权重
-            if hasattr(self.cfg, "unmet_weights_overrides") and self.cfg.unmet_weights_overrides:
-                t_key = str(arc.t)
-                ij_key = f"({arc.i},{arc.j})"
-                
-                if t_key in self.cfg.unmet_weights_overrides:
-                    pair_weights = self.cfg.unmet_weights_overrides[t_key]
-                    if ij_key in pair_weights:
-                        base_weight = float(pair_weights[ij_key])
-            
-            cost.coef_svc_gate = -vot * base_weight  # 负成本表示奖励
-            
-        elif arc.arc_type in ["svc_enter", "svc_exit"]:
-            # enter和exit弧没有额外成本
-            pass
-        
-        return cost
+    # 注意：compute_costs方法已移除，成本计算统一由ArcAssembly.compute_costs_batch处理
 
 
 # 注册到工厂

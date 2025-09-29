@@ -89,20 +89,7 @@ class IdleArc(ArcBase):
         
         return arcs
     
-    def compute_costs(self, arc: ArcMetadata) -> ArcCost:
-        """计算idle弧的成本"""
-        # idle弧只有机会成本
-        idle_opportunity_cost = float(self.cfg.costs_equity.idle_opportunity_cost)
-        
-        return ArcCost(
-            coef_idle=idle_opportunity_cost,
-            coef_rep=0.0,
-            coef_chg_travel=0.0,
-            coef_chg_occ=0.0,
-            coef_svc_gate=0.0,
-            coef_rep_reward=0.0,
-            coef_chg_reward=0.0
-        )
+    # 注意：compute_costs方法已移除，成本计算统一由ArcAssembly.compute_costs_batch处理
 
 
 # 注册到工厂

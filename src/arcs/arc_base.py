@@ -55,6 +55,8 @@ class ArcMetadata:
     cap_hint: Optional[int] = None   # 容量提示
     req_key: Optional[str] = None    # 需求键
     is_last_step: Optional[bool] = None  # 是否最后一步
+    tau_tochg: Optional[int] = None  # 去充电时间（用于充电占用成本计算）
+    tau_chg: Optional[int] = None    # 充电时间（用于充电占用成本计算）
     cost: Optional[ArcCost] = None   # 成本信息
     
     def __post_init__(self):
@@ -180,7 +182,8 @@ class ArcBase(ABC):
             
             # 添加可选字段
             optional_fields = ['i', 'j', 'k', 't', 'l', 'l_to', 'tau', 'de', 
-                             'dist_km', 'level', 'cap_hint', 'req_key', 'is_last_step']
+                             'dist_km', 'level', 'cap_hint', 'req_key', 'is_last_step',
+                             'tau_tochg', 'tau_chg']
             for field in optional_fields:
                 value = getattr(arc, field, None)
                 if value is not None:
@@ -203,10 +206,7 @@ class ArcBase(ABC):
         
         return pd.DataFrame(rows)
     
-    @abstractmethod
-    def compute_costs(self, arc: ArcMetadata) -> ArcCost:
-        """计算弧的成本"""
-        pass
+    # 注意：compute_costs方法已移除，成本计算统一由ArcAssembly.compute_costs_batch处理
     
     def generate_and_save(self, 
                          reachable_set: Set[Tuple[int, int, int]],
@@ -214,15 +214,13 @@ class ArcBase(ABC):
                          t0: Optional[int] = None,
                          t_hi: Optional[int] = None,
                          B: Optional[int] = None) -> pd.DataFrame:
-        """生成弧并保存到文件"""
+        """生成弧并保存到文件（不计算成本，成本由ArcAssembly统一计算）"""
         arcs = self.generate_arcs(reachable_set, t0, t_hi, B)
         
         # 过滤自环
         arcs = self._filter_self_loops(arcs)
         
-        # 计算成本
-        for arc in arcs:
-            arc.cost = self.compute_costs(arc)
+        # 注意：不在这里计算成本，成本由ArcAssembly.compute_costs_batch统一计算
         
         # 转换为DataFrame
         df = self.to_dataframe(arcs)

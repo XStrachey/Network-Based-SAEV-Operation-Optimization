@@ -241,10 +241,14 @@ class ArcAssembly:
                     lambda r: cp.vot * cp.beta_chg_p1_sum_over_window(int(r["t"]), int(r["tau"])), axis=1
                 )
                 
-                # 充电占用成本 (chg_occ)
+                # 充电占用成本 (chg_occ) - 使用跨期成本计算
                 occ_mask = df["arc_type"] == "chg_occ"
                 df.loc[occ_mask, "coef_chg_occ"] = df.loc[occ_mask].apply(
-                    lambda r: cp.vot * cp.beta_chg_p2(int(r["t"])), axis=1
+                    lambda r: cp.vot * cp.beta_chg_p2_sum_over_window(
+                        int(r["t"]), 
+                        int(r.get("tau_tochg", 0)), 
+                        int(r.get("tau_chg", 1))
+                    ), axis=1
                 )
                 
                 # 充电奖励（如果有）

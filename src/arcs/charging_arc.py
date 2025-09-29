@@ -212,7 +212,9 @@ class ChargingArc(ArcBase):
                             tau=0,
                             de=0,
                             level=level_k,
-                            cap_hint=plugs_kp
+                            cap_hint=plugs_kp,
+                            tau_tochg=tau_to,  # 添加去充电时间
+                            tau_chg=tau_chg    # 添加充电时间
                         )
                         arcs.append(occ_arc)
                         
@@ -255,39 +257,7 @@ class ChargingArc(ArcBase):
         
         return arcs
     
-    def compute_costs(self, arc: ArcMetadata) -> ArcCost:
-        """计算charging弧的成本"""
-        from arcs.arc_base import CoeffProvider
-        cp = CoeffProvider(self.cfg.paths.coeff_schedule)
-        
-        cost = ArcCost()
-        
-        if arc.arc_type == "tochg":
-            # 去充电行驶成本
-            vot = cp.vot
-            beta_chg_p1 = cp.beta_chg_p1_sum_over_window(arc.t, arc.tau)
-            cost.coef_chg_travel = vot * beta_chg_p1
-            
-        elif arc.arc_type == "chg_occ":
-            # 充电占用成本（每步）
-            vot = cp.vot
-            beta_chg_p2 = cp.beta_chg_p2(arc.t)
-            cost.coef_chg_occ = vot * beta_chg_p2
-                    
-        elif arc.arc_type == "chg_step":
-            # chg_step的成本主要来自奖励
-            if hasattr(self.cfg, 'flags') and getattr(self.cfg.flags, 'enable_charging_reward', True):
-                beta_chg_a = float(self.cfg.costs_equity.beta_chg_reward)
-                # 计算SOC提升
-                if arc.l_to is not None and arc.l is not None:
-                    d_soc = max(0, int(arc.l_to) - int(arc.l))
-                    cost.coef_chg_reward = -beta_chg_a * float(d_soc)
-                    
-        elif arc.arc_type == "chg_enter":
-            # chg_enter没有额外成本
-            pass
-        
-        return cost
+    # 注意：compute_costs方法已移除，成本计算统一由ArcAssembly.compute_costs_batch处理
 
 
 # 注册到工厂

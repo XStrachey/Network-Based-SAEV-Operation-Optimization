@@ -359,41 +359,7 @@ class RepositionArc(ArcBase):
         
         return arcs
     
-    def compute_costs(self, arc: ArcMetadata) -> ArcCost:
-        """计算reposition弧的成本"""
-        # 重定位时间成本 - 使用正确的成本计算
-        from arcs.arc_base import CoeffProvider
-        cp = CoeffProvider(self.cfg.paths.coeff_schedule)
-        
-        vot = cp.vot
-        gamma_rep = cp.gamma_rep_p_sum_over_window(arc.t, arc.tau)
-        coef_rep = vot * gamma_rep
-        
-        # 重定位奖励（负成本）- 基于净需求
-        coef_rep_reward = 0.0
-        if hasattr(self.cfg, 'flags') and getattr(self.cfg.flags, 'enable_reposition_reward', True):
-            # 使用统一的净需求计算方法
-            from config.costs import build_net_demand_based_reposition_rewards
-            zone_val = build_net_demand_based_reposition_rewards()
-            
-            # 查找目标区域的zone_value
-            target_value = zone_val[
-                (zone_val['t'] == arc.t) & (zone_val['j'] == arc.j)
-            ]['zone_value']
-            
-            if not target_value.empty:
-                gamma_rep_a = float(self.cfg.costs_equity.gamma_reposition_reward)
-                coef_rep_reward = -gamma_rep_a * float(target_value.iloc[0])
-        
-        return ArcCost(
-            coef_rep=coef_rep,
-            coef_rep_reward=coef_rep_reward,
-            coef_chg_travel=0.0,
-            coef_chg_occ=0.0,
-            coef_svc_gate=0.0,
-            coef_chg_reward=0.0,
-            coef_idle=0.0
-        )
+    # 注意：compute_costs方法已移除，成本计算统一由ArcAssembly.compute_costs_batch处理
 
 
 # 注册到工厂
