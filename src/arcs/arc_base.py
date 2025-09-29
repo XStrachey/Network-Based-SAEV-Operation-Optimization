@@ -277,8 +277,9 @@ class CoeffProvider:
     优先从 cfg.paths.coeff_schedule 读取（列: t, gamma_rep_p, beta_chg_p1, beta_chg_p2, tou_price），
     若缺失则回退到 config.costs_equity 的常数。
     """
-    def __init__(self, schedule_path: Optional[str] = None):
-        cfg = get_config()
+    def __init__(self, schedule_path: Optional[str] = None, cfg=None):
+        if cfg is None:
+            cfg = get_config()
         self.dt_minutes = int(cfg.time_soc.dt_minutes)
 
         ce = cfg.costs_equity
@@ -286,7 +287,7 @@ class CoeffProvider:
         self.gamma_rep_p_const = float(ce.gamma_rep)     # 重定位时间成本
         self.beta_chg_p1_const = float(ce.beta_toCHG)    # 去充电行驶成本
         self.beta_chg_p2_const = float(ce.beta_chg)      # 充电占位成本
-        self.tou_price_const = 0.0                       # 默认TOU价格为0（FCFS）
+        self.tou_price_const = 1.0                       # 默认TOU价格为1.0（FCFS）
 
         if schedule_path is None:
             schedule_path = cfg.paths.coeff_schedule
@@ -336,3 +337,13 @@ class CoeffProvider:
         if not self.has_schedule: return tau_chg * self.beta_chg_p2_const
         s_begin = int(t_start + tau_tochg)
         return float(sum(self.beta_chg_p2(tp) for tp in range(s_begin, s_begin + tau_chg)))
+    
+    def beta_chg_p2_with_tou_sum_over_window(self, t_start: int, tau_tochg: int, tau_chg: int) -> float:
+        """计算充电占用成本，包含beta_chg_p2和tou_price的窗口累计"""
+        tau_chg = int(tau_chg)
+        if tau_chg <= 0: return 0.0
+        if not self.has_schedule: 
+            return tau_chg * (self.beta_chg_p2_const + self.tou_price_const)
+        s_begin = int(t_start + tau_tochg)
+        print(f"beta_chg_p2_with_tou_sum_over_window: s_begin: {s_begin}, tau_chg: {tau_chg}, beta_chg_p2: {self.beta_chg_p2(s_begin)}, tou_price: {self.tou_price(s_begin)}")
+        return float(sum(self.beta_chg_p2(tp) + self.tou_price(tp) for tp in range(s_begin, s_begin + tau_chg)))

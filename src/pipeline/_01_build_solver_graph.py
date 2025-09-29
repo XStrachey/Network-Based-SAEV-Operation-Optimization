@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -279,11 +279,13 @@ def build_solver_graph(
     cap_infinite: float = 1e12,
     out_dir: str = "data/solver_graph",
     arc_types_override: Optional[Dict[str, bool]] = None,
+    cfg: Optional[Any] = None,
 ) -> Dict[str, str]:
     """
     返回落盘路径字典。t0/H 缺省时从配置读取。
     """
-    cfg = get_config()
+    if cfg is None:
+        cfg = get_config()
     _ensure_dir(Path(out_dir))
 
     # 读取配置默认
@@ -537,6 +539,7 @@ def main():
         cap_infinite=float(args.cap_infinite),
         out_dir=args.out,
         arc_types_override=arc_types_override,
+        cfg=cfg,
     )
 
 if __name__ == "__main__":

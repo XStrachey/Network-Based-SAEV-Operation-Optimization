@@ -209,7 +209,7 @@ class ArcAssembly:
             # 使用旧架构的批量成本计算逻辑
             if arc_type == "reposition":
                 from arcs.arc_base import CoeffProvider
-                cp = CoeffProvider(self.cfg.paths.coeff_schedule)
+                cp = CoeffProvider(self.cfg.paths.coeff_schedule, self.cfg)
                 
                 # 重定位时间成本
                 df["coef_rep"] = df.apply(
@@ -234,7 +234,7 @@ class ArcAssembly:
                     
             elif arc_type == "charging":
                 from arcs.arc_base import CoeffProvider
-                cp = CoeffProvider(self.cfg.paths.coeff_schedule)
+                cp = CoeffProvider(self.cfg.paths.coeff_schedule, self.cfg)
                 
                 # 去充电行驶成本 (tochg)
                 tochg_mask = df["arc_type"] == "tochg"
@@ -245,11 +245,10 @@ class ArcAssembly:
                 # 充电占用成本 (chg_occ) - 使用跨期成本计算 + TOU定价
                 occ_mask = df["arc_type"] == "chg_occ"
                 df.loc[occ_mask, "coef_chg_occ"] = df.loc[occ_mask].apply(
-                    lambda r: cp.vot * cp.beta_chg_p2_sum_over_window(
+                    lambda r: cp.vot * cp.beta_chg_p2_with_tou_sum_over_window(
                         int(r["t"]), 
                         int(r.get("tau_tochg", 0)), 
-                        int(r.get("tau_chg", 1))
-                    ) + cp.tou_price(int(r["t"])), axis=1
+                        int(r.get("tau_chg", 1))), axis=1
                 )
                 
                 # 充电奖励（如果有）

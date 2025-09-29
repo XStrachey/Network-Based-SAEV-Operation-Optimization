@@ -1,7 +1,7 @@
 {
   "status": "Optimal",
-  "objective": 383.0,
-  "total_cost": 383.0,
+  "objective": 502.0000000000001,
+  "total_cost": 502.0,
   "total_flow": 2590.0,
   "nodes": 123,
   "arcs": 268,
@@ -13,7 +13,7 @@
     },
     "chg_occ": {
       "flow": 460.0,
-      "cost": 1190.0,
+      "cost": 1309.0000000000002,
       "arcs": 28
     },
     "chg_step": {
